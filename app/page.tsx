@@ -1,5 +1,6 @@
 import { GoalPlanner } from "@/components/GoalPlanner";
 import { About } from "@/components/sections/About";
+import { Challenges } from "@/components/sections/Challenges";
 import { Features } from "@/components/sections/Features";
 import { FinalCTA } from "@/components/sections/FinalCTA";
 import { FinancialLearning } from "@/components/sections/FinancialLearning";
@@ -13,6 +14,7 @@ export default function Home() {
       <GoalPlanner />
       <Features />
       <HowItWorks />
+      <Challenges />
       <FinancialLearning />
       <About />
       <FinalCTA />

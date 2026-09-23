@@ -3,7 +3,7 @@
 import { Button } from "@/components/Button";
 import { Logo } from "@/components/Logo";
 import { cn } from "@/lib/cn";
-import { Menu, X } from "lucide-react";
+import { Flame, Menu, X } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useId, useState } from "react";
 
@@ -39,9 +39,17 @@ export function Navbar() {
   }, [open]);
 
   return (
-    <header className="sticky top-0 z-50 border-b border-line/80 bg-cream/90 backdrop-blur-md">
+    <header className="sticky top-0 z-50 border-b border-line/80 bg-cream/92 backdrop-blur-md">
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-4 px-5 sm:px-6 lg:px-8">
         <Logo />
+        <span className="hud-chip hidden text-ink md:inline-flex">
+          <Flame
+            size={13}
+            className="animate-soft-pulse text-orange"
+            aria-hidden="true"
+          />
+          Streak mode
+        </span>
 
         <nav
           aria-label="Primary"

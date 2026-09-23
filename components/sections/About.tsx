@@ -14,15 +14,14 @@ export function About() {
             id="about-heading"
             className="mt-3 font-display text-3xl tracking-tight text-ink sm:text-4xl"
           >
-            A savings coach that feels like a study buddy, not a bank.
+            A savings game that feels like a study buddy, not a bank.
           </h2>
         </div>
         <p className="text-base leading-7 text-muted">
           $aveStreak is built for students who want better money habits without
-          the jargon. We combine goals, streaks, community challenges, and
-          friendly AI coaching so saving feels doable, even on a campus
-          budget. You can try the Goal Planner first, then create an account
-          when you are ready.
+          the jargon. Goals become quests, deposits keep streaks alive, and
+          campus challenges keep it social. You can try the Goal Planner first,
+          then create an account when you are ready.
         </p>
       </div>
     </section>

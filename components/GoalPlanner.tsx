@@ -161,7 +161,7 @@ export function GoalPlanner() {
           </p>
         </div>
 
-        <div className="relative z-10 mx-auto mt-10 max-w-2xl overflow-visible rounded-3xl border border-line bg-card p-5 shadow-[0_10px_30px_rgba(35,31,27,0.05)] sm:p-8">
+        <div className="game-panel relative z-10 mx-auto mt-10 max-w-2xl overflow-visible rounded-3xl p-5 sm:p-8">
           {plan ? (
             <div className="animate-fade-up">
               <p className="text-xs font-semibold uppercase tracking-[0.14em] text-teal">

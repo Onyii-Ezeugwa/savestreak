@@ -1,3 +1,4 @@
+import { HexBadge } from "@/components/HexBadge";
 import { cn } from "@/lib/cn";
 import type { LucideIcon } from "lucide-react";
 
@@ -6,13 +7,14 @@ interface FeatureCardProps {
   description: string;
   icon: LucideIcon;
   accent?: "teal" | "green" | "orange" | "gold";
+  badge?: string;
 }
 
 const accentClasses = {
-  teal: "bg-teal/10 text-teal",
-  green: "bg-green/12 text-green",
-  orange: "bg-orange/12 text-orange",
-  gold: "bg-gold/15 text-gold",
+  teal: "bg-teal text-white",
+  green: "bg-green text-white",
+  orange: "bg-orange text-white",
+  gold: "bg-gold text-ink",
 } as const;
 
 export function FeatureCard({
@@ -20,16 +22,24 @@ export function FeatureCard({
   description,
   icon: Icon,
   accent = "teal",
+  badge,
 }: FeatureCardProps) {
   return (
-    <article className="group rounded-2xl border border-line bg-card p-6 shadow-[0_1px_3px_rgba(35,31,27,0.04)] transition-transform duration-200 hover:-translate-y-0.5">
-      <div
-        className={cn(
-          "mb-4 grid h-11 w-11 place-items-center rounded-xl",
-          accentClasses[accent],
-        )}
-      >
-        <Icon size={20} strokeWidth={1.8} aria-hidden="true" />
+    <article className="game-panel group rounded-3xl p-6 transition-transform duration-200 hover:-translate-y-0.5">
+      <div className="mb-4 flex items-start justify-between gap-3">
+        <HexBadge
+          className={cn(
+            "transition-transform duration-200 group-hover:-translate-y-1",
+            accentClasses[accent],
+          )}
+        >
+          <Icon size={18} strokeWidth={2} aria-hidden="true" />
+        </HexBadge>
+        {badge ? (
+          <span className="rounded-md border border-line bg-cream px-2 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-teal">
+            {badge}
+          </span>
+        ) : null}
       </div>
       <h3 className="text-lg font-semibold text-ink">{title}</h3>
       <p className="mt-2 text-sm leading-6 text-muted">{description}</p>

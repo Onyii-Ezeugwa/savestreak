@@ -19,7 +19,7 @@ export function Logo({ className, compact = false }: LogoProps) {
     >
       <span
         aria-hidden="true"
-        className="grid h-8 w-8 place-items-center rounded-xl bg-teal text-sm font-bold text-white shadow-[0_1px_2px_rgba(15,95,98,0.2)]"
+        className="hex grid h-8 w-8 place-items-center bg-teal text-sm font-bold text-white"
       >
         $
       </span>
