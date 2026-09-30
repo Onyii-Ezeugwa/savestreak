@@ -64,6 +64,15 @@ export function tomorrowDateInputValue(): string {
   return formatDateInputValue(addCalendarDays(startOfToday(), 1));
 }
 
+export function ageFromDob(dob: Date, today = startOfToday()) {
+  let age = today.getFullYear() - dob.getFullYear();
+  const monthDelta = today.getMonth() - dob.getMonth();
+  if (monthDelta < 0 || (monthDelta === 0 && today.getDate() < dob.getDate())) {
+    age -= 1;
+  }
+  return age;
+}
+
 export function formatDisplayDate(value: string): string {
   const parsed = parseDateOnly(value);
   if (!parsed) {

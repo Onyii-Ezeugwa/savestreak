@@ -2,9 +2,11 @@
 
 import { Button } from "@/components/Button";
 import { Logo } from "@/components/Logo";
+import { useAuth } from "@/components/AuthProvider";
 import { cn } from "@/lib/cn";
 import { Flame, Menu, X } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useId, useState } from "react";
 
 const NAV_LINKS = [
@@ -17,6 +19,8 @@ const NAV_LINKS = [
 export function Navbar() {
   const [open, setOpen] = useState(false);
   const menuId = useId();
+  const { user, logout } = useAuth();
+  const router = useRouter();
 
   useEffect(() => {
     if (!open) {
@@ -67,12 +71,32 @@ export function Navbar() {
         </nav>
 
         <div className="hidden items-center gap-2 sm:flex">
-          <Button href="/login" variant="secondary" size="sm">
-            Log In
-          </Button>
-          <Button href="/signup" variant="primary" size="sm">
-            Sign Up
-          </Button>
+          {user ? (
+            <>
+              <Button href="/dashboard" variant="secondary" size="sm">
+                Dashboard
+              </Button>
+              <Button
+                type="button"
+                variant="primary"
+                size="sm"
+                onClick={() => {
+                  void logout().then(() => router.push("/"));
+                }}
+              >
+                Log out
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button href="/login" variant="secondary" size="sm">
+                Log In
+              </Button>
+              <Button href="/signup" variant="primary" size="sm">
+                Sign Up
+              </Button>
+            </>
+          )}
         </div>
 
         <button
@@ -110,12 +134,33 @@ export function Navbar() {
             </Link>
           ))}
           <div className="mt-3 flex flex-col gap-2 sm:hidden">
-            <Button href="/login" variant="secondary">
-              Log In
-            </Button>
-            <Button href="/signup" variant="primary">
-              Sign Up
-            </Button>
+            {user ? (
+              <>
+                <Button href="/dashboard" variant="secondary">
+                  Dashboard
+                </Button>
+                <Button
+                  type="button"
+                  onClick={() => {
+                    void logout().then(() => {
+                      setOpen(false);
+                      router.push("/");
+                    });
+                  }}
+                >
+                  Log out
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button href="/login" variant="secondary">
+                  Log In
+                </Button>
+                <Button href="/signup" variant="primary">
+                  Sign Up
+                </Button>
+              </>
+            )}
           </div>
         </nav>
       </div>

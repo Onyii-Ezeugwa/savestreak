@@ -1,3 +1,4 @@
+import { AuthProvider } from "@/components/AuthProvider";
 import { PageShell } from "@/components/PageShell";
 import type { Metadata } from "next";
 import { Fraunces, Plus_Jakarta_Sans } from "next/font/google";
@@ -35,7 +36,9 @@ export default function RootLayout({
       className={`${jakarta.variable} ${fraunces.variable} h-full antialiased`}
     >
       <body className="flex min-h-full flex-col bg-cream text-ink">
-        <PageShell>{children}</PageShell>
+        <AuthProvider>
+          <PageShell>{children}</PageShell>
+        </AuthProvider>
       </body>
     </html>
   );
