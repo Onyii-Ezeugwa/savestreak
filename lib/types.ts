@@ -18,6 +18,8 @@ export interface GoalPlanRequest {
   targetDate: string;
   savingsAmount?: number;
   savingsFrequency?: SavingsFrequency;
+  financialContext?: string;
+  usedFinancialData?: boolean;
 }
 
 export interface GoalPlanMilestone {
@@ -37,6 +39,7 @@ export interface GoalPlan {
   milestones: GoalPlanMilestone[];
   suggestions: string[];
   source: "ai" | "mock";
+  usedFinancialData?: boolean;
 }
 
 export interface GoalPlanError {

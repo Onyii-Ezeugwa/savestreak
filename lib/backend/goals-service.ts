@@ -2,6 +2,12 @@ import { randomUUID } from "node:crypto";
 import { parseDateOnly } from "./auth-service";
 import type { DataStore } from "./store";
 import {
+  goalIsComplete,
+  goalPaceStatus,
+  goalProgressPercent,
+  goalRemainingCents,
+} from "@/lib/goal-progress";
+import {
   ApiError,
   type GoalRecord,
   type PublicGoal,
@@ -23,21 +29,36 @@ export function requireActiveAccount(user: UserRecord) {
   }
 }
 
-export function toPublicGoal(goal: GoalRecord): PublicGoal {
-  const progress =
-    goal.targetAmountCents <= 0
-      ? 0
-      : Math.min(
-          100,
-          Math.round((goal.currentAmountCents / goal.targetAmountCents) * 100),
-        );
+export function toPublicGoal(
+  goal: GoalRecord,
+  linkedBalanceCents?: number | null,
+): PublicGoal {
+  const savedCents =
+    goal.linkedAccountId && linkedBalanceCents != null
+      ? Math.max(0, linkedBalanceCents)
+      : goal.currentAmountCents;
+  const progress = goalProgressPercent(savedCents, goal.targetAmountCents);
+  const completed = goalIsComplete(savedCents, goal.targetAmountCents);
+  const pace = goalPaceStatus({
+    currentAmountCents: savedCents,
+    targetAmountCents: goal.targetAmountCents,
+    targetDate: goal.targetDate,
+    createdAt: goal.createdAt,
+  });
+
   return {
     id: goal.id,
     name: goal.name,
     targetAmount: goal.targetAmountCents / 100,
-    currentAmount: goal.currentAmountCents / 100,
+    currentAmount: savedCents / 100,
+    remainingAmount: goalRemainingCents(savedCents, goal.targetAmountCents) / 100,
     targetDate: goal.targetDate,
     progress,
+    completed,
+    pace,
+    linkedAccountId: goal.linkedAccountId,
+    savedPlan: goal.savedPlan,
+    savedPlanAt: goal.savedPlanAt,
     createdAt: goal.createdAt,
     updatedAt: goal.updatedAt,
   };
@@ -75,7 +96,21 @@ export class GoalsService {
   async list(user: UserRecord) {
     requireActiveAccount(user);
     const goals = await this.store.listGoals(user.id);
-    return goals.map(toPublicGoal);
+    const accounts =
+      typeof this.store.listBankAccounts === "function"
+        ? await this.store.listBankAccounts(user.id)
+        : [];
+    const balanceById = new Map(
+      accounts.map((account) => [account.id, account.balanceCents]),
+    );
+    return goals.map((goal) =>
+      toPublicGoal(
+        goal,
+        goal.linkedAccountId
+          ? (balanceById.get(goal.linkedAccountId) ?? null)
+          : null,
+      ),
+    );
   }
 
   async create(
@@ -100,6 +135,9 @@ export class GoalsService {
       targetAmountCents: parsed.targetAmountCents,
       currentAmountCents: parsed.currentAmountCents,
       targetDate: parsed.targetDate,
+      linkedAccountId: null,
+      savedPlan: null,
+      savedPlanAt: null,
       createdAt: now,
       updatedAt: now,
     };
@@ -115,6 +153,7 @@ export class GoalsService {
       targetAmount?: unknown;
       targetDate?: unknown;
       currentAmount?: unknown;
+      linkedAccountId?: unknown;
     },
   ) {
     requireActiveAccount(user);
@@ -128,19 +167,52 @@ export class GoalsService {
         input.targetAmount !== undefined || input.targetDate !== undefined,
       existing,
     });
+
+    let linkedAccountId = existing.linkedAccountId;
+    let currentAmountCents =
+      input.currentAmount === undefined
+        ? existing.currentAmountCents
+        : parsed.currentAmountCents;
+
+    if (input.linkedAccountId !== undefined) {
+      if (input.linkedAccountId === null || input.linkedAccountId === "") {
+        linkedAccountId = null;
+      } else if (typeof input.linkedAccountId === "string") {
+        const account = await this.store.getBankAccount(
+          input.linkedAccountId,
+          user.id,
+        );
+        if (!account) {
+          throw new ApiError(400, "That bank account was not found.", {
+            linkedAccountId: "Choose a connected savings account.",
+          });
+        }
+        if (account.accountType !== "savings" && account.accountType !== "checking") {
+          throw new ApiError(
+            400,
+            "Link a checking or savings account to this goal.",
+            { linkedAccountId: "Pick a checking or savings account." },
+          );
+        }
+        linkedAccountId = account.id;
+        currentAmountCents = Math.max(0, account.balanceCents);
+      }
+    }
+
     const updated: GoalRecord = {
       ...existing,
       name: parsed.name || existing.name,
       targetAmountCents: parsed.targetAmountCents,
-      currentAmountCents:
-        input.currentAmount === undefined
-          ? existing.currentAmountCents
-          : parsed.currentAmountCents,
+      currentAmountCents,
       targetDate: parsed.targetDate || existing.targetDate,
+      linkedAccountId,
       updatedAt: new Date().toISOString(),
     };
     await this.store.updateGoal(updated);
-    return toPublicGoal(updated);
+    return toPublicGoal(
+      updated,
+      linkedAccountId ? currentAmountCents : null,
+    );
   }
 
   async remove(user: UserRecord, id: string) {
@@ -149,6 +221,64 @@ export class GoalsService {
     if (!deleted) {
       throw new ApiError(404, "That goal was not found.");
     }
+  }
+
+  async createPlan(user: UserRecord, id: string) {
+    requireActiveAccount(user);
+    const goal = await this.store.getGoal(id, user.id);
+    if (!goal) {
+      throw new ApiError(404, "That goal was not found.");
+    }
+
+    const accounts =
+      typeof this.store.listBankAccounts === "function"
+        ? await this.store.listBankAccounts(user.id)
+        : [];
+    const usedFinancialData = accounts.length > 0;
+    const financialContext = usedFinancialData
+      ? [
+          "Connected account balances:",
+          ...accounts.map(
+            (account) =>
+              `- ${account.name} (${account.accountType}): $${(account.balanceCents / 100).toFixed(2)}`,
+          ),
+          "No spending ledger is available yet.",
+        ].join("\n")
+      : "";
+
+    const { generateGoalPlan } = await import("@/lib/openrouter");
+    const plan = await generateGoalPlan({
+      goalName: goal.name,
+      amount: goal.targetAmountCents / 100,
+      targetDate: goal.targetDate,
+      financialContext,
+      usedFinancialData,
+    });
+
+    return plan;
+  }
+
+  async savePlan(
+    user: UserRecord,
+    id: string,
+    plan: Record<string, unknown>,
+  ) {
+    requireActiveAccount(user);
+    const existing = await this.store.getGoal(id, user.id);
+    if (!existing) {
+      throw new ApiError(404, "That goal was not found.");
+    }
+    if (!plan || typeof plan !== "object") {
+      throw new ApiError(400, "Provide a savings plan to save.");
+    }
+    const updated = {
+      ...existing,
+      savedPlan: plan,
+      savedPlanAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    await this.store.updateGoal(updated);
+    return toPublicGoal(updated);
   }
 
   private parseGoal(

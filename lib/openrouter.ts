@@ -78,7 +78,9 @@ export function buildMockPlan(input: GoalPlanRequest): GoalPlan {
     weeklySavings,
     cadenceAmount,
     cadenceFrequency,
-    summary: buildDefaultSummary(input, weeklySavings, timelineWeeks),
+    summary: input.usedFinancialData
+      ? buildDefaultSummary(input, weeklySavings, timelineWeeks)
+      : `${buildDefaultSummary(input, weeklySavings, timelineWeeks)} This plan uses the goal details only because no balances or spending were available.`,
     milestones: buildDefaultMilestones(input.amount, timelineWeeks),
     suggestions: [
       `Move $${cadenceAmount} ${cadence} as soon as money comes in, before everyday spending starts. Treating that transfer like a bill makes the rest of the week easier to manage.`,
@@ -87,6 +89,7 @@ export function buildMockPlan(input: GoalPlanRequest): GoalPlan {
       `Create a savings pot named after ${input.goalName} and make the first transfer today. Keeping the money separate makes it less tempting to spend and easier to see progress.`,
     ],
     source: "mock",
+    usedFinancialData: Boolean(input.usedFinancialData),
   };
 }
 
@@ -255,6 +258,9 @@ function buildMessages(input: GoalPlanRequest) {
     input.savingsAmount !== undefined && input.savingsFrequency
       ? `The student said they could comfortably save about $${input.savingsAmount} ${frequencyLabel(input.savingsFrequency)}. Build the plan around that cadence, not only weekly deposits.`
       : "The student did not specify a comfortable savings amount or cadence.";
+  const moneyContext =
+    input.financialContext?.trim() ||
+    "No connected balances or spending records were available. Build the plan from the goal alone and say that clearly in the summary.";
 
   return [
     {
@@ -270,6 +276,9 @@ Target amount: $${input.amount}
 Target date: ${input.targetDate}
 Estimated timeline: about ${timelineWeeks} weeks
 ${cadenceHint}
+
+Financial context:
+${moneyContext}
 
 Return JSON with this exact shape:
 {
@@ -290,6 +299,7 @@ Return JSON with this exact shape:
 Rules:
 - weeklySavings should be a realistic whole-dollar weekly equivalent.
 - summary should be 1-2 sentences.
+- If financial context is missing, say the plan is based on the goal alone.
 - milestones should include 2 checkpoints: halfway and the goal.
 - suggestions must include exactly 4 tips.
 - Each tip should be 2 sentences: first the action, then a brief why or how. Do not write one-liners.
@@ -355,16 +365,20 @@ export async function generateGoalPlan(
   input: GoalPlanRequest,
 ): Promise<GoalPlan> {
   const apiKey = process.env.OPENROUTER_API_KEY;
+  const withMeta = (plan: GoalPlan): GoalPlan => ({
+    ...plan,
+    usedFinancialData: Boolean(input.usedFinancialData),
+  });
 
   if (!apiKey) {
-    return buildMockPlan(input);
+    return withMeta(buildMockPlan(input));
   }
 
   for (const model of getModelQueue()) {
     try {
       const plan = await requestPlanFromModel(apiKey, model, input);
       if (plan) {
-        return plan;
+        return withMeta(plan);
       }
     } catch {
       // Rate limits, timeouts, and provider outages should fall through.

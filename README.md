@@ -65,6 +65,7 @@ Put secrets in `.env.local`. Restart the dev server after you change it.
 | `SUPABASE_SERVICE_ROLE_KEY` | Server-side Supabase access |
 | `RESEND_API_KEY` | Transactional email |
 | `OPENROUTER_API_KEY` | AI Goal Planner |
+| `OCR_SPACE_API_KEY` | Optional. Server fallback for receipt OCR if browser scan fails. Free tier at [ocr.space](https://ocr.space/OCRAPI) |
 | `DATA_GOV_API_KEY` | Optional. Better US college search. Falls back to a demo key. |
 
 Preview the guardian consent email locally with:

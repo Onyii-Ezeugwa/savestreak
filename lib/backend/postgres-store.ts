@@ -1,5 +1,11 @@
 import pg from "pg";
 import type { DataStore } from "./store";
+import type {
+  BankAccountRecord,
+  BankAccountType,
+  BankConnectionRecord,
+} from "./bank-types";
+import type { ExpenseCategory, ExpenseRecord } from "./expense-types";
 import {
   ApiError,
   type ConsentRecord,
@@ -215,8 +221,8 @@ export class PostgresStore implements DataStore {
   async createGoal(goal: GoalRecord) {
     await this.pool.query(
       `INSERT INTO goals
-        (id, user_id, name, target_amount_cents, current_amount_cents, target_date, created_at, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+        (id, user_id, name, target_amount_cents, current_amount_cents, target_date, linked_account_id, saved_plan, saved_plan_at, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
       [
         goal.id,
         goal.userId,
@@ -224,6 +230,9 @@ export class PostgresStore implements DataStore {
         goal.targetAmountCents,
         goal.currentAmountCents,
         goal.targetDate,
+        goal.linkedAccountId,
+        goal.savedPlan ? JSON.stringify(goal.savedPlan) : null,
+        goal.savedPlanAt,
         goal.createdAt,
         goal.updatedAt,
       ],
@@ -235,7 +244,8 @@ export class PostgresStore implements DataStore {
     await this.pool.query(
       `UPDATE goals SET
         name = $2, target_amount_cents = $3, current_amount_cents = $4,
-        target_date = $5, updated_at = $6
+        target_date = $5, linked_account_id = $6, saved_plan = $7,
+        saved_plan_at = $8, updated_at = $9
        WHERE id = $1`,
       [
         goal.id,
@@ -243,6 +253,9 @@ export class PostgresStore implements DataStore {
         goal.targetAmountCents,
         goal.currentAmountCents,
         goal.targetDate,
+        goal.linkedAccountId,
+        goal.savedPlan ? JSON.stringify(goal.savedPlan) : null,
+        goal.savedPlanAt,
         goal.updatedAt,
       ],
     );
@@ -252,6 +265,177 @@ export class PostgresStore implements DataStore {
   async deleteGoal(id: string, userId: string) {
     const result = await this.pool.query(
       `DELETE FROM goals WHERE id = $1 AND user_id = $2`,
+      [id, userId],
+    );
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  async listBankConnections(userId: string) {
+    const result = await this.pool.query(
+      `SELECT * FROM bank_connections WHERE user_id = $1 ORDER BY connected_at DESC`,
+      [userId],
+    );
+    return result.rows.map(mapBankConnection);
+  }
+
+  async getBankConnection(id: string, userId: string) {
+    const result = await this.pool.query(
+      `SELECT * FROM bank_connections WHERE id = $1 AND user_id = $2`,
+      [id, userId],
+    );
+    return result.rows[0] ? mapBankConnection(result.rows[0]) : null;
+  }
+
+  async createBankConnection(connection: BankConnectionRecord) {
+    try {
+      await this.pool.query(
+        `INSERT INTO bank_connections
+          (id, user_id, bank_id, bank_name, bank_city, bank_state, domain,
+           item_id, access_token, institution_id, connected_at, last_refreshed_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+        [
+          connection.id,
+          connection.userId,
+          connection.bankId,
+          connection.bankName,
+          connection.bankCity,
+          connection.bankState,
+          connection.domain,
+          connection.itemId,
+          connection.accessToken,
+          connection.institutionId,
+          connection.connectedAt,
+          connection.lastRefreshedAt,
+        ],
+      );
+      return connection;
+    } catch (error) {
+      wrapPgError(error, "Could not connect that bank.");
+    }
+  }
+
+  async updateBankConnection(connection: BankConnectionRecord) {
+    await this.pool.query(
+      `UPDATE bank_connections SET
+        bank_name = $2, bank_city = $3, bank_state = $4, domain = $5,
+        item_id = $6, access_token = $7, institution_id = $8,
+        last_refreshed_at = $9
+       WHERE id = $1`,
+      [
+        connection.id,
+        connection.bankName,
+        connection.bankCity,
+        connection.bankState,
+        connection.domain,
+        connection.itemId,
+        connection.accessToken,
+        connection.institutionId,
+        connection.lastRefreshedAt,
+      ],
+    );
+    return connection;
+  }
+
+  async deleteBankConnection(id: string, userId: string) {
+    const result = await this.pool.query(
+      `DELETE FROM bank_connections WHERE id = $1 AND user_id = $2`,
+      [id, userId],
+    );
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  async listBankAccounts(userId: string) {
+    const result = await this.pool.query(
+      `SELECT * FROM bank_accounts WHERE user_id = $1 ORDER BY name ASC`,
+      [userId],
+    );
+    return result.rows.map(mapBankAccount);
+  }
+
+  async listBankAccountsByConnection(connectionId: string) {
+    const result = await this.pool.query(
+      `SELECT * FROM bank_accounts WHERE connection_id = $1 ORDER BY name ASC`,
+      [connectionId],
+    );
+    return result.rows.map(mapBankAccount);
+  }
+
+  async getBankAccount(id: string, userId: string) {
+    const result = await this.pool.query(
+      `SELECT * FROM bank_accounts WHERE id = $1 AND user_id = $2`,
+      [id, userId],
+    );
+    return result.rows[0] ? mapBankAccount(result.rows[0]) : null;
+  }
+
+  async replaceBankAccounts(
+    connectionId: string,
+    accounts: BankAccountRecord[],
+  ) {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(`DELETE FROM bank_accounts WHERE connection_id = $1`, [
+        connectionId,
+      ]);
+      for (const account of accounts) {
+        await client.query(
+          `INSERT INTO bank_accounts
+            (id, connection_id, user_id, external_id, name, account_type, balance_cents, currency, last_updated_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+          [
+            account.id,
+            account.connectionId,
+            account.userId,
+            account.externalId,
+            account.name,
+            account.accountType,
+            account.balanceCents,
+            account.currency,
+            account.lastUpdatedAt,
+          ],
+        );
+      }
+      await client.query("COMMIT");
+      return accounts;
+    } catch (error) {
+      await client.query("ROLLBACK");
+      wrapPgError(error, "Could not save bank account balances.");
+    } finally {
+      client.release();
+    }
+  }
+
+  async listExpenses(userId: string) {
+    const result = await this.pool.query(
+      `SELECT * FROM expenses WHERE user_id = $1 ORDER BY created_at DESC`,
+      [userId],
+    );
+    return result.rows.map(mapExpense);
+  }
+
+  async createExpense(expense: ExpenseRecord) {
+    await this.pool.query(
+      `INSERT INTO expenses
+        (id, user_id, merchant, purchase_date, amount_cents, category, receipt_path, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+      [
+        expense.id,
+        expense.userId,
+        expense.merchant,
+        expense.purchaseDate,
+        expense.amountCents,
+        expense.category,
+        expense.receiptPath,
+        expense.createdAt,
+      ],
+    );
+    return expense;
+  }
+
+  async deleteExpense(id: string, userId: string) {
+    const result = await this.pool.query(
+      `DELETE FROM expenses WHERE id = $1 AND user_id = $2`,
       [id, userId],
     );
     return (result.rowCount ?? 0) > 0;
@@ -303,7 +487,62 @@ function mapGoal(row: Record<string, unknown>): GoalRecord {
     targetAmountCents: Number(row.target_amount_cents),
     currentAmountCents: Number(row.current_amount_cents),
     targetDate: asDate(row.target_date as Date | string),
+    linkedAccountId: row.linked_account_id
+      ? String(row.linked_account_id)
+      : null,
+    savedPlan:
+      row.saved_plan && typeof row.saved_plan === "object"
+        ? (row.saved_plan as Record<string, unknown>)
+        : null,
+    savedPlanAt: asIso((row.saved_plan_at as Date | string | null) ?? null),
     createdAt: asIso(row.created_at as Date | string) ?? new Date().toISOString(),
     updatedAt: asIso(row.updated_at as Date | string) ?? new Date().toISOString(),
+  };
+}
+
+function mapBankConnection(row: Record<string, unknown>): BankConnectionRecord {
+  return {
+    id: String(row.id),
+    userId: String(row.user_id),
+    bankId: String(row.bank_id),
+    bankName: String(row.bank_name),
+    bankCity: String(row.bank_city ?? ""),
+    bankState: String(row.bank_state ?? ""),
+    domain: row.domain ? String(row.domain) : null,
+    itemId: row.item_id ? String(row.item_id) : null,
+    accessToken: row.access_token ? String(row.access_token) : null,
+    institutionId: row.institution_id ? String(row.institution_id) : null,
+    connectedAt:
+      asIso(row.connected_at as Date | string) ?? new Date().toISOString(),
+    lastRefreshedAt:
+      asIso(row.last_refreshed_at as Date | string) ?? new Date().toISOString(),
+  };
+}
+
+function mapBankAccount(row: Record<string, unknown>): BankAccountRecord {
+  return {
+    id: String(row.id),
+    connectionId: String(row.connection_id),
+    userId: String(row.user_id),
+    externalId: String(row.external_id),
+    name: String(row.name),
+    accountType: row.account_type as BankAccountType,
+    balanceCents: Number(row.balance_cents),
+    currency: String(row.currency ?? "USD"),
+    lastUpdatedAt:
+      asIso(row.last_updated_at as Date | string) ?? new Date().toISOString(),
+  };
+}
+
+function mapExpense(row: Record<string, unknown>): ExpenseRecord {
+  return {
+    id: String(row.id),
+    userId: String(row.user_id),
+    merchant: String(row.merchant),
+    purchaseDate: asDate(row.purchase_date as Date | string),
+    amountCents: Number(row.amount_cents),
+    category: row.category as ExpenseCategory,
+    receiptPath: String(row.receipt_path),
+    createdAt: asIso(row.created_at as Date | string) ?? new Date().toISOString(),
   };
 }

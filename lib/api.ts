@@ -17,8 +17,14 @@ export interface AccountGoal {
   name: string;
   targetAmount: number;
   currentAmount: number;
+  remainingAmount: number;
   targetDate: string;
   progress: number;
+  completed: boolean;
+  pace: "complete" | "on_track" | "behind";
+  linkedAccountId: string | null;
+  savedPlan: Record<string, unknown> | null;
+  savedPlanAt: string | null;
   createdAt: string;
   updatedAt: string;
 }

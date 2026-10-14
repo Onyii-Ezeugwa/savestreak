@@ -1,6 +1,8 @@
 import path from "node:path";
 import { AuthService, toPublicUser } from "./auth-service";
+import { BankService } from "./bank-service";
 import { ConsentService } from "./consent-service";
+import { ExpenseService } from "./expense-service";
 import { GoalsService } from "./goals-service";
 import { JsonStore } from "./json-store";
 import { PostgresStore } from "./postgres-store";
@@ -9,9 +11,12 @@ import { createServerSupabase } from "@/lib/supabase/server";
 import { SupabaseStore } from "./supabase-store";
 import { ApiError } from "./types";
 
+const STORE_VERSION = 4;
+
 const globalForBackend = globalThis as typeof globalThis & {
   savestreakStore?: DataStore;
   savestreakStoreReady?: Promise<DataStore>;
+  savestreakStoreVersion?: number;
 };
 
 async function createStore(): Promise<DataStore> {
@@ -29,16 +34,34 @@ async function createStore(): Promise<DataStore> {
   return store;
 }
 
+function storeIsCurrent(store: DataStore | undefined) {
+  return Boolean(
+    store &&
+      globalForBackend.savestreakStoreVersion === STORE_VERSION &&
+      typeof store.listBankAccounts === "function" &&
+      typeof store.listExpenses === "function",
+  );
+}
+
 export async function getStore() {
-  if (globalForBackend.savestreakStore) {
-    return globalForBackend.savestreakStore;
+  if (storeIsCurrent(globalForBackend.savestreakStore)) {
+    return globalForBackend.savestreakStore!;
   }
-  if (!globalForBackend.savestreakStoreReady) {
-    globalForBackend.savestreakStoreReady = createStore().then((store) => {
-      globalForBackend.savestreakStore = store;
-      return store;
-    });
+
+  if (
+    globalForBackend.savestreakStoreReady &&
+    globalForBackend.savestreakStoreVersion === STORE_VERSION
+  ) {
+    return globalForBackend.savestreakStoreReady;
   }
+
+  globalForBackend.savestreakStore = undefined;
+  globalForBackend.savestreakStoreVersion = STORE_VERSION;
+  globalForBackend.savestreakStoreReady = createStore().then((store) => {
+    globalForBackend.savestreakStore = store;
+    globalForBackend.savestreakStoreVersion = STORE_VERSION;
+    return store;
+  });
   return globalForBackend.savestreakStoreReady;
 }
 
@@ -49,6 +72,8 @@ export async function getServices() {
     auth: new AuthService(store),
     consent: new ConsentService(store),
     goals: new GoalsService(store),
+    banks: new BankService(store),
+    expenses: new ExpenseService(store),
   };
 }
 

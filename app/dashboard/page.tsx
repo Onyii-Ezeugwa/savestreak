@@ -10,6 +10,7 @@ import {
   type ApiErrorPayload,
 } from "@/lib/api";
 import { formatDisplayDate } from "@/lib/dates";
+import { Loader2 } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 
@@ -19,10 +20,49 @@ const MONEY = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 0,
 });
 
+function PaceBadge({ pace }: { pace: AccountGoal["pace"] }) {
+  const styles =
+    pace === "complete"
+      ? "border-green/30 bg-green/10 text-green"
+      : pace === "on_track"
+        ? "border-teal/30 bg-teal/10 text-teal"
+        : "border-orange/30 bg-orange/10 text-orange";
+  const label =
+    pace === "complete"
+      ? "Complete"
+      : pace === "on_track"
+        ? "On track"
+        : "Behind";
+
+  return (
+    <span
+      className={`inline-flex rounded-full border px-2.5 py-0.5 text-xs font-semibold ${styles}`}
+    >
+      {label}
+    </span>
+  );
+}
+
 export default function DashboardPage() {
   const { user, loading, logout } = useAuth();
   const router = useRouter();
   const [goals, setGoals] = useState<AccountGoal[]>([]);
+  const [bankAccounts, setBankAccounts] = useState<
+    Array<{ id: string; name: string; accountType: string; balance: number }>
+  >([]);
+  const [netWorth, setNetWorth] = useState<{
+    assets: number;
+    debts: number;
+    netWorth: number;
+    lastRefreshedAt: string | null;
+  } | null>(null);
+  const [bankMessage, setBankMessage] = useState<string | null>(null);
+  const [refreshingBanks, setRefreshingBanks] = useState(false);
+  const [draftPlans, setDraftPlans] = useState<
+    Record<string, Record<string, unknown>>
+  >({});
+  const [planningGoalId, setPlanningGoalId] = useState<string | null>(null);
+  const [savingPlanGoalId, setSavingPlanGoalId] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
 
@@ -34,18 +74,80 @@ export default function DashboardPage() {
 
   async function refreshGoals() {
     try {
-      const payload = await apiRequest<{ goals: AccountGoal[] }>("/goals");
-      setGoals(payload.goals);
+      const [goalPayload, bankPayload] = await Promise.all([
+        apiRequest<{ goals: AccountGoal[] }>("/goals"),
+        apiRequest<{
+          connections: Array<{
+            accounts: Array<{
+              id: string;
+              name: string;
+              accountType: string;
+              balance: number;
+            }>;
+          }>;
+          netWorth: {
+            assets: number;
+            debts: number;
+            netWorth: number;
+            lastRefreshedAt: string | null;
+          };
+        }>("/bank-connections").catch(() => ({
+          connections: [],
+          netWorth: null,
+        })),
+      ]);
+      setGoals(goalPayload.goals);
+      setBankAccounts(
+        bankPayload.connections.flatMap((connection) => connection.accounts),
+      );
+      setNetWorth(bankPayload.netWorth);
       setLoadError(null);
+      return bankPayload.netWorth;
     } catch (caught) {
       setLoadError((caught as ApiErrorPayload).error);
+      return null;
+    }
+  }
+
+  async function refreshBankBalances(manual = false) {
+    setRefreshingBanks(true);
+    setBankMessage(null);
+    try {
+      const payload = await apiRequest<{
+        netWorth: {
+          assets: number;
+          debts: number;
+          netWorth: number;
+          lastRefreshedAt: string | null;
+        };
+      }>("/bank-connections/refresh", { method: "POST" });
+      setNetWorth(payload.netWorth);
+      await refreshGoals();
+      if (manual) {
+        setBankMessage("Balances refreshed.");
+      }
+    } catch (caught) {
+      setBankMessage((caught as ApiErrorPayload).error);
+      await refreshGoals();
+    } finally {
+      setRefreshingBanks(false);
     }
   }
 
   useEffect(() => {
-    if (user?.status === "active") {
-      void refreshGoals();
+    if (user?.status !== "active") {
+      return;
     }
+    void (async () => {
+      const worth = await refreshGoals();
+      if (!worth?.lastRefreshedAt) {
+        return;
+      }
+      const ageMs = Date.now() - new Date(worth.lastRefreshedAt).getTime();
+      if (ageMs > 24 * 60 * 60 * 1000) {
+        await refreshBankBalances(false);
+      }
+    })();
   }, [user]);
 
   if (loading || !user) {
@@ -68,11 +170,19 @@ export default function DashboardPage() {
           </h1>
           <p className="mt-2 text-sm text-muted">{user.email}</p>
         </div>
-        <Button type="button" variant="secondary" onClick={() => {
-          void logout().then(() => router.push("/"));
-        }}>
-          Log out
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button href="/connect-bank" variant="outline">
+            Connect bank
+          </Button>
+          <Button href="/expenses" variant="outline">
+            Receipts
+          </Button>
+          <Button type="button" variant="secondary" onClick={() => {
+            void logout().then(() => router.push("/"));
+          }}>
+            Log out
+          </Button>
+        </div>
       </div>
 
       {user.status === "pending_consent" ? (
@@ -98,7 +208,70 @@ export default function DashboardPage() {
       ) : null}
 
       {user.status === "active" ? (
-        <div className="mt-8 grid gap-6 lg:grid-cols-[1fr_20rem]">
+        <div className="mt-8 space-y-6">
+          {bankAccounts.length > 0 && netWorth ? (
+            <div className="game-panel rounded-3xl p-5">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h2 className="font-display text-2xl text-ink">Balances</h2>
+                  <p className="mt-1 text-sm text-muted">
+                    Last updated{" "}
+                    {netWorth.lastRefreshedAt
+                      ? new Date(netWorth.lastRefreshedAt).toLocaleString()
+                      : "never"}
+                    . Auto-refreshes once a day.
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={refreshingBanks}
+                  onClick={() => void refreshBankBalances(true)}
+                >
+                  {refreshingBanks ? (
+                    <span className="inline-flex items-center gap-2">
+                      <Loader2 size={14} className="animate-spin" aria-hidden="true" />
+                      Refreshing...
+                    </span>
+                  ) : (
+                    "Refresh balances"
+                  )}
+                </Button>
+              </div>
+              <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">
+                    Assets
+                  </p>
+                  <p className="mt-1 font-display text-2xl text-ink">
+                    {MONEY.format(netWorth.assets)}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">
+                    Debts
+                  </p>
+                  <p className="mt-1 font-display text-2xl text-ink">
+                    {MONEY.format(netWorth.debts)}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">
+                    Net worth
+                  </p>
+                  <p className="mt-1 font-display text-2xl text-ink">
+                    {MONEY.format(netWorth.netWorth)}
+                  </p>
+                </div>
+              </div>
+              {bankMessage ? (
+                <p className="mt-3 text-sm text-orange">{bankMessage}</p>
+              ) : null}
+            </div>
+          ) : null}
+
+        <div className="grid gap-6 lg:grid-cols-[1fr_20rem]">
           <div className="space-y-4">
             <h2 className="font-display text-2xl text-ink">Your quests</h2>
             {loadError ? (
@@ -114,6 +287,7 @@ export default function DashboardPage() {
                 {editingId === goal.id ? (
                   <GoalForm
                     initial={goal}
+                    bankAccounts={bankAccounts}
                     submitLabel="Save changes"
                     onCancel={() => setEditingId(null)}
                     onSaved={async () => {
@@ -125,13 +299,24 @@ export default function DashboardPage() {
                   <>
                     <div className="flex items-start justify-between gap-3">
                       <div>
-                        <h3 className="font-display text-2xl text-ink">
-                          {goal.name}
-                        </h3>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h3 className="font-display text-2xl text-ink">
+                            {goal.name}
+                          </h3>
+                          <PaceBadge pace={goal.pace} />
+                        </div>
                         <p className="mt-1 text-sm text-muted">
                           {MONEY.format(goal.currentAmount)} saved of{" "}
                           {MONEY.format(goal.targetAmount)} by{" "}
                           {formatDisplayDate(goal.targetDate)}
+                        </p>
+                        <p className="mt-1 text-sm text-muted">
+                          {goal.completed
+                            ? "Target reached."
+                            : `${MONEY.format(goal.remainingAmount)} remaining`}
+                          {goal.linkedAccountId
+                            ? " · Progress uses linked account balance"
+                            : null}
                         </p>
                       </div>
                       <span className="text-sm font-semibold text-teal">
@@ -140,11 +325,13 @@ export default function DashboardPage() {
                     </div>
                     <div className="mt-4 h-3 overflow-hidden rounded-sm border border-teal/20 bg-cream-dark">
                       <div
-                        className="h-full bg-teal"
+                        className={`h-full transition-[width] duration-500 ${
+                          goal.completed ? "bg-green" : "bg-teal"
+                        }`}
                         style={{ width: `${goal.progress}%` }}
                       />
                     </div>
-                    <div className="mt-4 flex gap-2">
+                    <div className="mt-4 flex flex-wrap gap-2">
                       <Button
                         type="button"
                         size="sm"
@@ -152,6 +339,50 @@ export default function DashboardPage() {
                         onClick={() => setEditingId(goal.id)}
                       >
                         Edit
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={
+                          planningGoalId !== null || savingPlanGoalId !== null
+                        }
+                        aria-busy={planningGoalId === goal.id}
+                        onClick={async () => {
+                          setPlanningGoalId(goal.id);
+                          setLoadError(null);
+                          try {
+                            const payload = await apiRequest<{
+                              plan: Record<string, unknown>;
+                            }>(`/goals/${goal.id}/plan`, {
+                              method: "POST",
+                              body: JSON.stringify({}),
+                            });
+                            setDraftPlans((current) => ({
+                              ...current,
+                              [goal.id]: payload.plan,
+                            }));
+                          } catch (caught) {
+                            setLoadError((caught as ApiErrorPayload).error);
+                          } finally {
+                            setPlanningGoalId(null);
+                          }
+                        }}
+                      >
+                        {planningGoalId === goal.id ? (
+                          <span className="inline-flex items-center gap-2">
+                            <Loader2
+                              size={14}
+                              className="animate-spin"
+                              aria-hidden="true"
+                            />
+                            Generating plan...
+                          </span>
+                        ) : goal.savedPlan ? (
+                          "Regenerate AI plan"
+                        ) : (
+                          "Get AI plan"
+                        )}
                       </Button>
                       <Button
                         type="button"
@@ -167,6 +398,122 @@ export default function DashboardPage() {
                         Delete
                       </Button>
                     </div>
+                    {planningGoalId === goal.id ? (
+                      <div
+                        className="mt-4 rounded-2xl border border-teal/25 bg-teal/5 px-4 py-4"
+                        role="status"
+                        aria-live="polite"
+                        aria-busy="true"
+                      >
+                        <p className="inline-flex items-center gap-2 text-sm font-semibold text-teal">
+                          <Loader2
+                            size={16}
+                            className="animate-spin"
+                            aria-hidden="true"
+                          />
+                          Building your AI plan
+                        </p>
+                        <p className="mt-2 text-sm leading-6 text-muted">
+                          Looking at {goal.name}, your timeline, and any linked
+                          balances. This usually takes a few seconds.
+                        </p>
+                      </div>
+                    ) : (draftPlans[goal.id] || goal.savedPlan) ? (
+                      <div className="mt-4 rounded-2xl border border-line bg-cream px-4 py-3 text-sm">
+                        <p className="font-semibold text-ink">
+                          {draftPlans[goal.id] ? "New AI plan" : "Saved AI plan"}
+                        </p>
+                        <p className="mt-2 leading-6 text-muted">
+                          {String(
+                            (draftPlans[goal.id] ?? goal.savedPlan)?.summary ??
+                              "",
+                          )}
+                        </p>
+                        <p className="mt-2 text-ink">
+                          Save about{" "}
+                          {MONEY.format(
+                            Number(
+                              (draftPlans[goal.id] ?? goal.savedPlan)
+                                ?.cadenceAmount ?? 0,
+                            ),
+                          )}{" "}
+                          per{" "}
+                          {String(
+                            (draftPlans[goal.id] ?? goal.savedPlan)
+                              ?.cadenceFrequency ?? "week",
+                          )}
+                          .
+                        </p>
+                        <ul className="mt-3 list-disc space-y-1 pl-5 text-muted">
+                          {(
+                            ((draftPlans[goal.id] ?? goal.savedPlan)
+                              ?.suggestions as string[] | undefined) ?? []
+                          )
+                            .slice(0, 4)
+                            .map((tip) => (
+                              <li key={tip}>{tip}</li>
+                            ))}
+                        </ul>
+                        {!(
+                          (draftPlans[goal.id] ?? goal.savedPlan)
+                            ?.usedFinancialData
+                        ) ? (
+                          <p className="mt-3 text-xs text-muted">
+                            Built from the goal details only. Connect a bank for
+                            a more personalized plan.
+                          </p>
+                        ) : null}
+                        {draftPlans[goal.id] ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            className="mt-3"
+                            disabled={
+                              savingPlanGoalId === goal.id ||
+                              planningGoalId !== null
+                            }
+                            aria-busy={savingPlanGoalId === goal.id}
+                            onClick={async () => {
+                              setSavingPlanGoalId(goal.id);
+                              try {
+                                await apiRequest(`/goals/${goal.id}/plan`, {
+                                  method: "POST",
+                                  body: JSON.stringify({
+                                    action: "save",
+                                    plan: draftPlans[goal.id],
+                                  }),
+                                });
+                                setDraftPlans((current) => {
+                                  const next = { ...current };
+                                  delete next[goal.id];
+                                  return next;
+                                });
+                                await refreshGoals();
+                              } finally {
+                                setSavingPlanGoalId(null);
+                              }
+                            }}
+                          >
+                            {savingPlanGoalId === goal.id ? (
+                              <span className="inline-flex items-center gap-2">
+                                <Loader2
+                                  size={14}
+                                  className="animate-spin"
+                                  aria-hidden="true"
+                                />
+                                Saving...
+                              </span>
+                            ) : (
+                              "Save plan to goal"
+                            )}
+                          </Button>
+                        ) : goal.savedPlanAt ? (
+                          <p className="mt-3 text-xs text-muted">
+                            Saved {new Date(goal.savedPlanAt).toLocaleString()}
+                          </p>
+                        ) : null}
+                      </div>
+                    ) : null}
                   </>
                 )}
               </article>
@@ -179,11 +526,15 @@ export default function DashboardPage() {
             </p>
             <div className="mt-4">
               <GoalForm
+                bankAccounts={bankAccounts}
                 submitLabel="Create goal"
-                onSaved={refreshGoals}
+                onSaved={async () => {
+                  await refreshGoals();
+                }}
               />
             </div>
           </aside>
+        </div>
         </div>
       ) : null}
     </section>
@@ -192,15 +543,26 @@ export default function DashboardPage() {
 
 function GoalForm({
   initial,
+  bankAccounts = [],
   submitLabel,
   onSaved,
   onCancel,
 }: {
   initial?: AccountGoal;
+  bankAccounts?: Array<{
+    id: string;
+    name: string;
+    accountType: string;
+    balance: number;
+  }>;
   submitLabel: string;
   onSaved: () => Promise<void>;
   onCancel?: () => void;
 }) {
+  const linkableAccounts = bankAccounts.filter(
+    (account) =>
+      account.accountType === "savings" || account.accountType === "checking",
+  );
   const [name, setName] = useState(initial?.name ?? "");
   const [targetAmount, setTargetAmount] = useState(
     initial ? String(initial.targetAmount) : "",
@@ -209,6 +571,9 @@ function GoalForm({
     initial ? String(initial.currentAmount) : "0",
   );
   const [targetDate, setTargetDate] = useState(initial?.targetDate ?? "");
+  const [linkedAccountId, setLinkedAccountId] = useState(
+    initial?.linkedAccountId ?? "",
+  );
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -224,6 +589,9 @@ function GoalForm({
         targetAmount: Number(targetAmount),
         currentAmount: Number(currentAmount || 0),
         targetDate,
+        ...(initial
+          ? { linkedAccountId: linkedAccountId || null }
+          : {}),
       };
       if (initial) {
         await apiRequest(`/goals/${initial.id}`, {
@@ -239,6 +607,7 @@ function GoalForm({
         setTargetAmount("");
         setCurrentAmount("0");
         setTargetDate("");
+        setLinkedAccountId("");
       }
       await onSaved();
     } catch (caught) {
@@ -275,7 +644,44 @@ function GoalForm({
         value={currentAmount}
         error={fieldErrors.currentAmount}
         onChange={(event) => setCurrentAmount(event.target.value)}
+        hint={
+          linkedAccountId
+            ? "Linked account balance overrides this when you save."
+            : undefined
+        }
       />
+      {initial && linkableAccounts.length > 0 ? (
+        <div>
+          <label
+            htmlFor={`linked-account-${initial.id}`}
+            className="text-sm font-medium text-ink"
+          >
+            Linked savings account
+          </label>
+          <select
+            id={`linked-account-${initial.id}`}
+            className="mt-2 w-full rounded-2xl border border-line bg-cream px-4 py-3 text-sm text-ink"
+            value={linkedAccountId}
+            onChange={(event) => setLinkedAccountId(event.target.value)}
+          >
+            <option value="">None (manual progress)</option>
+            {linkableAccounts.map((account) => (
+              <option key={account.id} value={account.id}>
+                {account.name} ({MONEY.format(account.balance)})
+              </option>
+            ))}
+          </select>
+          {fieldErrors.linkedAccountId ? (
+            <p className="mt-2 text-sm text-orange">
+              {fieldErrors.linkedAccountId}
+            </p>
+          ) : (
+            <p className="mt-2 text-xs text-muted">
+              When linked, progress uses that account balance.
+            </p>
+          )}
+        </div>
+      ) : null}
       <div>
         <p className="text-sm font-medium text-ink">Target date</p>
         <div className="mt-2">
