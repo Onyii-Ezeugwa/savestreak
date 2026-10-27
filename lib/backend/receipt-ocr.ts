@@ -1,5 +1,6 @@
 import sharp from "sharp";
-import { parseReceiptText } from "@/lib/receipt-text-parse";
+import { resolveMerchantName } from "@/lib/backend/business-directory";
+import { parseReceiptText, withMerchant } from "@/lib/receipt-text-parse";
 import type { ReceiptScanResult } from "./expense-types";
 import { ApiError } from "./types";
 
@@ -174,7 +175,7 @@ async function scanWithOpenRouter(bytes: Buffer, mimeType: string) {
       if (!Number.isFinite(amount) || amount <= 0) {
         continue;
       }
-      return parseReceiptText(
+      return tryParse(
         `${parsed.merchant}\n${parsed.purchaseDate}\nGrand Total $${amount.toFixed(2)}`,
       );
     } catch {
@@ -185,14 +186,18 @@ async function scanWithOpenRouter(bytes: Buffer, mimeType: string) {
   return null;
 }
 
-function tryParse(text: string | null | undefined) {
+async function tryParse(text: string | null | undefined) {
   if (!text?.trim()) {
     return null;
   }
-  return (
+  const parsed =
     parseReceiptText(text) ??
-    parseReceiptText(text.replace(/[|]/g, " ").replace(/\s{2,}/g, "\n"))
-  );
+    parseReceiptText(text.replace(/[|]/g, " ").replace(/\s{2,}/g, "\n"));
+  if (!parsed) {
+    return null;
+  }
+  const merchant = await resolveMerchantName(text, parsed.merchant);
+  return withMerchant(parsed, merchant);
 }
 
 export async function scanReceiptImage(input: {
@@ -201,14 +206,14 @@ export async function scanReceiptImage(input: {
   ocrText?: string;
 }): Promise<ReceiptScanResult> {
   const clientText = input.ocrText?.trim() ?? "";
-  const fromClient = tryParse(clientText);
+  const fromClient = await tryParse(clientText);
   if (fromClient) {
     return fromClient;
   }
 
   // OCR.space free tier rejects large phone photos unless we compress first.
   const fromOcrSpace = await scanWithOcrSpace(input.bytes, input.mimeType);
-  const parsedSpace = tryParse(fromOcrSpace);
+  const parsedSpace = await tryParse(fromOcrSpace);
   if (parsedSpace) {
     return parsedSpace;
   }

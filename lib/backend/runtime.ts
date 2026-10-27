@@ -11,7 +11,7 @@ import { createServerSupabase } from "@/lib/supabase/server";
 import { SupabaseStore } from "./supabase-store";
 import { ApiError } from "./types";
 
-const STORE_VERSION = 4;
+const STORE_VERSION = 6;
 
 const globalForBackend = globalThis as typeof globalThis & {
   savestreakStore?: DataStore;
@@ -39,7 +39,8 @@ function storeIsCurrent(store: DataStore | undefined) {
     store &&
       globalForBackend.savestreakStoreVersion === STORE_VERSION &&
       typeof store.listBankAccounts === "function" &&
-      typeof store.listExpenses === "function",
+      typeof store.listExpenses === "function" &&
+      typeof store.listStatementTransactions === "function",
   );
 }
 

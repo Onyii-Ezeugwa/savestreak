@@ -7,10 +7,10 @@ export interface ParsedReceiptFields {
   category: ExpenseCategory;
 }
 
-function categorizeMerchant(merchant: string): ExpenseCategory {
+export function categorizeMerchant(merchant: string): ExpenseCategory {
   const value = merchant.toLowerCase();
   if (
-    /(cafe|coffee|pizza|burger|food|grocery|market|chipotle|starbucks|dining|restaurant)/.test(
+    /(cafe|coffee|pizza|burger|food|grocery|market|chipotle|starbucks|dining|restaurant|h-e-b|heb|kroger|aldi|costco|whole foods|trader joe)/.test(
       value,
     )
   ) {
@@ -154,27 +154,122 @@ function pickDate(text: string): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-function pickMerchant(lines: string[]): string {
-  const joined = lines.join(" ");
-  if (/united\s+states\s+postal|u\.?s\.?\s*postal|\busps\b/i.test(joined)) {
-    return "USPS";
+const MERCHANT_JUNK =
+  /give us feedback|survey\.|www\.|https?:|thank you|customer copy|return policy|we value|your opinion|cashier|subtotal|\btax\b|\btotal\b|change due|visa|mastercard|amex|discover|debit|credit|approval|auth(?:orization)?|phone|tel\b|store\s*#|welcome to/i;
+
+const QUERY_STOP = new Set([
+  "www",
+  "com",
+  "net",
+  "org",
+  "edu",
+  "gov",
+  "survey",
+  "feedback",
+  "http",
+  "https",
+  "email",
+  "mail",
+  "receipt",
+  "store",
+  "customer",
+  "thank",
+  "thanks",
+  "your",
+  "the",
+  "and",
+  "for",
+  "give",
+  "welcome",
+  "copy",
+  "phone",
+  "total",
+  "visa",
+  "mastercard",
+  "amex",
+  "debit",
+  "credit",
+  "info",
+  "help",
+]);
+
+function addQuery(queries: string[], value: string) {
+  const query = value
+    .replace(/[#*]\s*\d+\b/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+  if (query.length < 3 || query.length > 40) {
+    return;
+  }
+  if (QUERY_STOP.has(query.toLowerCase())) {
+    return;
+  }
+  if (queries.some((existing) => existing.toLowerCase() === query.toLowerCase())) {
+    return;
+  }
+  queries.push(query);
+}
+
+/** Names and website labels worth looking up in the business directory. */
+export function collectMerchantQueries(text: string, fallback: string): string[] {
+  const queries: string[] = [];
+  const hosts = text.match(/\b[a-z0-9-]{2,}(?:\.[a-z0-9-]{2,})+\b/gi) ?? [];
+  for (const host of hosts) {
+    for (const label of host.split(".")) {
+      addQuery(queries, label);
+    }
   }
 
+  addQuery(queries, fallback);
+
+  for (const line of text.split(/\r?\n/).slice(0, 12)) {
+    const trimmed = line.trim().replace(/\s+/g, " ");
+    if (MERCHANT_JUNK.test(trimmed) || /\d+\.\d{2}/.test(trimmed)) {
+      continue;
+    }
+    if ((trimmed.match(/\s/g) ?? []).length > 3) {
+      continue;
+    }
+    addQuery(queries, trimmed);
+  }
+
+  return queries.slice(0, 5);
+}
+
+export function withMerchant(
+  parsed: ParsedReceiptFields,
+  merchant: string,
+): ParsedReceiptFields {
+  const name = merchant.trim().replace(/\s+/g, " ").slice(0, 80);
+  return {
+    ...parsed,
+    merchant: name || parsed.merchant,
+    category: categorizeMerchant(name || parsed.merchant),
+  };
+}
+
+function pickMerchant(lines: string[]): string {
   const skip =
     /^(receipt|invoice|tel|phone|www\.|http|#|product|qty|unit|price|refund|customer|copy|\d{3}[-.\s]?\d{3})/i;
 
   for (const line of lines.slice(0, 12)) {
     const trimmed = line.trim().replace(/\s+/g, " ");
-    if (trimmed.length < 2 || trimmed.length > 60) {
+    if (trimmed.length < 2 || trimmed.length > 40) {
       continue;
     }
-    if (skip.test(trimmed)) {
+    if (skip.test(trimmed) || MERCHANT_JUNK.test(trimmed)) {
       continue;
     }
-    if (/^\d+$/.test(trimmed)) {
+    if ((trimmed.match(/\s/g) ?? []).length > 3) {
+      continue;
+    }
+    if (/^\d+$/.test(trimmed) || /\d+\.\d{2}/.test(trimmed)) {
       continue;
     }
     if (/^\d+[.\-/]/.test(trimmed) && /\d{2,}/.test(trimmed)) {
+      continue;
+    }
+    if (/\d{3,}/.test(trimmed) && /st|ave|rd|blvd|dr|tx|ca|ny/i.test(trimmed)) {
       continue;
     }
     return trimmed.slice(0, 80);

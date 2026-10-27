@@ -6,6 +6,28 @@ import type {
   BankConnectionRecord,
 } from "./bank-types";
 import type { ExpenseCategory, ExpenseRecord } from "./expense-types";
+import type { LessonRecord } from "./habit-types";
+import {
+  mapBadge,
+  mapLesson,
+  mapLessonRead,
+  mapLessonSave,
+  mapSavingsStreak,
+  mapSnapshot,
+  mapStatement,
+  mapStreakWeek,
+  mapSummary,
+} from "./habit-map";
+import type {
+  BalanceSnapshotRecord,
+  LessonReadRecord,
+  LessonSaveRecord,
+  SavingsStreakRecord,
+  StatementTransactionRecord,
+  StreakWeekRecord,
+  UserBadgeRecord,
+  WeeklySummaryRecord,
+} from "./habit-types";
 import {
   ApiError,
   type ConsentRecord,
@@ -439,6 +461,239 @@ export class PostgresStore implements DataStore {
       [id, userId],
     );
     return (result.rowCount ?? 0) > 0;
+  }
+
+  async listBalanceSnapshots(userId: string) {
+    const result = await this.pool.query(
+      `SELECT * FROM balance_snapshots WHERE user_id = $1 ORDER BY captured_at ASC`,
+      [userId],
+    );
+    return result.rows.map((row) => mapSnapshot(row));
+  }
+
+  async addBalanceSnapshot(snapshot: BalanceSnapshotRecord) {
+    await this.pool.query(
+      `INSERT INTO balance_snapshots (id, user_id, captured_at, savings_cents)
+       VALUES ($1,$2,$3,$4)`,
+      [snapshot.id, snapshot.userId, snapshot.capturedAt, snapshot.savingsCents],
+    );
+    return snapshot;
+  }
+
+  async replaceStreakWeeks(userId: string, weeks: StreakWeekRecord[]) {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(`DELETE FROM streak_weeks WHERE user_id = $1`, [userId]);
+      for (const week of weeks) {
+        await client.query(
+          `INSERT INTO streak_weeks
+            (user_id, week_start, increased, start_cents, end_cents)
+           VALUES ($1,$2,$3,$4,$5)`,
+          [userId, week.weekStart, week.increased, week.startCents, week.endCents],
+        );
+      }
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      wrapPgError(error, "Could not save streak history.");
+    } finally {
+      client.release();
+    }
+  }
+
+  async getSavingsStreak(userId: string) {
+    const result = await this.pool.query(
+      `SELECT * FROM savings_streaks WHERE user_id = $1`,
+      [userId],
+    );
+    return result.rows[0] ? mapSavingsStreak(result.rows[0]) : null;
+  }
+
+  async saveSavingsStreak(streak: SavingsStreakRecord) {
+    await this.pool.query(
+      `INSERT INTO savings_streaks (user_id, current_streak, longest_streak, updated_at)
+       VALUES ($1,$2,$3,$4)
+       ON CONFLICT (user_id) DO UPDATE
+         SET current_streak = EXCLUDED.current_streak,
+             longest_streak = EXCLUDED.longest_streak,
+             updated_at = EXCLUDED.updated_at`,
+      [streak.userId, streak.currentStreak, streak.longestStreak, streak.updatedAt],
+    );
+    return streak;
+  }
+
+  async listStatementTransactions(userId: string) {
+    const result = await this.pool.query(
+      `SELECT * FROM statement_transactions WHERE user_id = $1 ORDER BY purchase_date DESC`,
+      [userId],
+    );
+    return result.rows.map((row) => mapStatement(row));
+  }
+
+  async createStatementTransactions(rows: StatementTransactionRecord[]) {
+    for (const row of rows) {
+      await this.pool.query(
+        `INSERT INTO statement_transactions
+          (id, user_id, merchant, purchase_date, amount_cents, category, created_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+        [
+          row.id,
+          row.userId,
+          row.merchant,
+          row.purchaseDate,
+          row.amountCents,
+          row.category,
+          row.createdAt,
+        ],
+      );
+    }
+  }
+
+  async listLessons() {
+    const result = await this.pool.query(`SELECT * FROM lessons ORDER BY id`);
+    return result.rows.map((row) => mapLesson(row));
+  }
+
+  async saveLessons(lessons: LessonRecord[]) {
+    for (const lesson of lessons) {
+      await this.pool.query(
+        `INSERT INTO lessons
+          (id, title, body, takeaway, topics, minutes, youtube_url, youtube_label, context_key)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+         ON CONFLICT (id) DO UPDATE
+           SET title = EXCLUDED.title,
+               body = EXCLUDED.body,
+               takeaway = EXCLUDED.takeaway,
+               topics = EXCLUDED.topics,
+               minutes = EXCLUDED.minutes,
+               youtube_url = EXCLUDED.youtube_url,
+               youtube_label = EXCLUDED.youtube_label,
+               context_key = EXCLUDED.context_key`,
+        [
+          lesson.id,
+          lesson.title,
+          lesson.body,
+          lesson.takeaway,
+          lesson.topics,
+          lesson.minutes,
+          lesson.youtubeUrl,
+          lesson.youtubeLabel,
+          lesson.contextKey,
+        ],
+      );
+    }
+  }
+
+  async listLessonReads(userId: string) {
+    const result = await this.pool.query(
+      `SELECT * FROM lesson_reads WHERE user_id = $1`,
+      [userId],
+    );
+    return result.rows.map((row) => mapLessonRead(row));
+  }
+
+  async markLessonRead(read: LessonReadRecord) {
+    await this.pool.query(
+      `INSERT INTO lesson_reads (user_id, lesson_id, read_at)
+       VALUES ($1,$2,$3)
+       ON CONFLICT (user_id, lesson_id) DO UPDATE SET read_at = EXCLUDED.read_at`,
+      [read.userId, read.lessonId, read.readAt],
+    );
+  }
+
+  async listLessonSaves(userId: string) {
+    const result = await this.pool.query(
+      `SELECT * FROM lesson_saves WHERE user_id = $1 ORDER BY saved_at DESC`,
+      [userId],
+    );
+    return result.rows.map((row) => mapLessonSave(row));
+  }
+
+  async setLessonSaved(save: LessonSaveRecord, saved: boolean) {
+    if (!saved) {
+      await this.pool.query(
+        `DELETE FROM lesson_saves WHERE user_id = $1 AND lesson_id = $2`,
+        [save.userId, save.lessonId],
+      );
+      return;
+    }
+    await this.pool.query(
+      `INSERT INTO lesson_saves (user_id, lesson_id, saved_at)
+       VALUES ($1,$2,$3)
+       ON CONFLICT (user_id, lesson_id) DO UPDATE SET saved_at = EXCLUDED.saved_at`,
+      [save.userId, save.lessonId, save.savedAt],
+    );
+  }
+
+  async listUserBadges(userId: string) {
+    const result = await this.pool.query(
+      `SELECT * FROM user_badges WHERE user_id = $1 ORDER BY earned_at DESC`,
+      [userId],
+    );
+    return result.rows.map((row) => mapBadge(row));
+  }
+
+  async awardBadge(badge: UserBadgeRecord) {
+    const result = await this.pool.query(
+      `INSERT INTO user_badges (user_id, badge_id, earned_at)
+       VALUES ($1,$2,$3)
+       ON CONFLICT (user_id, badge_id) DO NOTHING
+       RETURNING badge_id`,
+      [badge.userId, badge.badgeId, badge.earnedAt],
+    );
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  async listWeeklySummaries(userId: string) {
+    const result = await this.pool.query(
+      `SELECT * FROM weekly_summaries WHERE user_id = $1 ORDER BY week_start DESC`,
+      [userId],
+    );
+    return result.rows.map((row) => mapSummary(row));
+  }
+
+  async getWeeklySummary(userId: string, weekStart: string) {
+    const result = await this.pool.query(
+      `SELECT * FROM weekly_summaries WHERE user_id = $1 AND week_start = $2`,
+      [userId, weekStart],
+    );
+    return result.rows[0] ? mapSummary(result.rows[0]) : null;
+  }
+
+  async saveWeeklySummary(summary: WeeklySummaryRecord) {
+    await this.pool.query(
+      `INSERT INTO weekly_summaries
+        (id, user_id, week_start, spending_cents, previous_spending_cents,
+         top_categories, goal_note, streak_note, tip, body, had_activity, source, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9,$10,$11,$12,$13)
+       ON CONFLICT (user_id, week_start) DO UPDATE
+         SET spending_cents = EXCLUDED.spending_cents,
+             previous_spending_cents = EXCLUDED.previous_spending_cents,
+             top_categories = EXCLUDED.top_categories,
+             goal_note = EXCLUDED.goal_note,
+             streak_note = EXCLUDED.streak_note,
+             tip = EXCLUDED.tip,
+             body = EXCLUDED.body,
+             had_activity = EXCLUDED.had_activity,
+             source = EXCLUDED.source`,
+      [
+        summary.id,
+        summary.userId,
+        summary.weekStart,
+        summary.spendingCents,
+        summary.previousSpendingCents,
+        JSON.stringify(summary.topCategories),
+        summary.goalNote,
+        summary.streakNote,
+        summary.tip,
+        summary.body,
+        summary.hadActivity,
+        summary.source,
+        summary.createdAt,
+      ],
+    );
+    return summary;
   }
 }
 

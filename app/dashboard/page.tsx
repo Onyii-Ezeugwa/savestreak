@@ -1,6 +1,7 @@
 "use client";
 
 import { Button } from "@/components/Button";
+import { HabitsPanel } from "@/components/HabitsPanel";
 import { Field } from "@/components/Field";
 import { GoalDatePicker } from "@/components/GoalDatePicker";
 import { useAuth } from "@/components/AuthProvider";
@@ -10,9 +11,26 @@ import {
   type ApiErrorPayload,
 } from "@/lib/api";
 import { formatDisplayDate } from "@/lib/dates";
-import { Loader2 } from "lucide-react";
+import {
+  ArrowLeftRight,
+  BookOpen,
+  Landmark,
+  Loader2,
+  Receipt,
+  ScrollText,
+  type LucideIcon,
+} from "lucide-react";
+import Link from "next/link";
 import { useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
+
+const DASHBOARD_LINKS: Array<{ href: string; label: string; icon: LucideIcon }> = [
+  { href: "/connect-bank", label: "Connect bank", icon: Landmark },
+  { href: "/expenses", label: "Receipts", icon: Receipt },
+  { href: "/transactions", label: "Transactions", icon: ArrowLeftRight },
+  { href: "/summaries", label: "Weekly summary", icon: ScrollText },
+  { href: "/lessons", label: "Lesson", icon: BookOpen },
+];
 
 const MONEY = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -65,6 +83,16 @@ export default function DashboardPage() {
   const [savingPlanGoalId, setSavingPlanGoalId] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [habitTick, setHabitTick] = useState(0);
+  const [habitSnapshot, setHabitSnapshot] = useState<{
+    streak: {
+      currentStreak: number;
+      longestStreak: number;
+      history: Array<{ weekStart: string; increased: boolean }>;
+    };
+    badges: Array<{ id: string; name: string; description: string; earnedAt: string }>;
+    justEarned: Array<{ id: string; name: string; description: string; earnedAt: string }>;
+  } | null>(null);
 
   useEffect(() => {
     if (!loading && !user) {
@@ -102,6 +130,7 @@ export default function DashboardPage() {
       );
       setNetWorth(bankPayload.netWorth);
       setLoadError(null);
+      setHabitTick((current) => current + 1);
       return bankPayload.netWorth;
     } catch (caught) {
       setLoadError((caught as ApiErrorPayload).error);
@@ -138,16 +167,64 @@ export default function DashboardPage() {
     if (user?.status !== "active") {
       return;
     }
+    let cancelled = false;
     void (async () => {
-      const worth = await refreshGoals();
-      if (!worth?.lastRefreshedAt) {
-        return;
-      }
-      const ageMs = Date.now() - new Date(worth.lastRefreshedAt).getTime();
-      if (ageMs > 24 * 60 * 60 * 1000) {
-        await refreshBankBalances(false);
+      try {
+        const payload = await apiRequest<{
+          goals: AccountGoal[];
+          connections: Array<{
+            accounts: Array<{
+              id: string;
+              name: string;
+              accountType: string;
+              balance: number;
+            }>;
+          }>;
+          netWorth: {
+            assets: number;
+            debts: number;
+            netWorth: number;
+            lastRefreshedAt: string | null;
+          };
+          streak: {
+            currentStreak: number;
+            longestStreak: number;
+            history: Array<{ weekStart: string; increased: boolean }>;
+          };
+          badges: {
+            badges: Array<{ id: string; name: string; description: string; earnedAt: string }>;
+            justEarned: Array<{ id: string; name: string; description: string; earnedAt: string }>;
+          };
+        }>("/dashboard");
+        if (cancelled) {
+          return;
+        }
+        setGoals(payload.goals);
+        setBankAccounts(payload.connections.flatMap((connection) => connection.accounts));
+        setNetWorth(payload.netWorth);
+        setHabitSnapshot({
+          streak: payload.streak,
+          badges: payload.badges.badges ?? [],
+          justEarned: payload.badges.justEarned ?? [],
+        });
+        setLoadError(null);
+        const refreshedAt = payload.netWorth?.lastRefreshedAt;
+        if (!refreshedAt) {
+          return;
+        }
+        const ageMs = Date.now() - new Date(refreshedAt).getTime();
+        if (Number.isFinite(ageMs) && ageMs > 24 * 60 * 60 * 1000) {
+          void refreshBankBalances(false);
+        }
+      } catch (caught) {
+        if (!cancelled) {
+          setLoadError((caught as ApiErrorPayload).error);
+        }
       }
     })();
+    return () => {
+      cancelled = true;
+    };
   }, [user]);
 
   if (loading || !user) {
@@ -160,7 +237,7 @@ export default function DashboardPage() {
 
   return (
     <section className="mx-auto max-w-6xl px-5 py-14 sm:px-6 lg:px-8">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+      <div className="flex items-start justify-between gap-4">
         <div>
           <p className="text-xs font-bold uppercase tracking-[0.16em] text-teal">
             Player HUD
@@ -170,20 +247,33 @@ export default function DashboardPage() {
           </h1>
           <p className="mt-2 text-sm text-muted">{user.email}</p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Button href="/connect-bank" variant="outline">
-            Connect bank
-          </Button>
-          <Button href="/expenses" variant="outline">
-            Receipts
-          </Button>
-          <Button type="button" variant="secondary" onClick={() => {
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          className="shrink-0"
+          onClick={() => {
             void logout().then(() => router.push("/"));
-          }}>
-            Log out
-          </Button>
-        </div>
+          }}
+        >
+          Log out
+        </Button>
       </div>
+      <nav
+        aria-label="Dashboard"
+        className="mt-6 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5"
+      >
+        {DASHBOARD_LINKS.map((item) => (
+          <Link
+            key={item.href}
+            href={item.href}
+            className="flex items-center gap-2.5 rounded-2xl border border-line bg-card px-3.5 py-3 text-sm font-semibold leading-tight text-ink transition-colors hover:border-teal/40 hover:bg-teal/5 hover:text-teal"
+          >
+            <item.icon size={16} className="shrink-0 text-teal" aria-hidden="true" />
+            {item.label}
+          </Link>
+        ))}
+      </nav>
 
       {user.status === "pending_consent" ? (
         <div className="mt-8 rounded-3xl border border-gold/40 bg-gold/10 p-6">
@@ -209,6 +299,7 @@ export default function DashboardPage() {
 
       {user.status === "active" ? (
         <div className="mt-8 space-y-6">
+          <HabitsPanel tick={habitTick} snapshot={habitSnapshot} />
           {bankAccounts.length > 0 && netWorth ? (
             <div className="game-panel rounded-3xl p-5">
               <div className="flex flex-wrap items-start justify-between gap-3">

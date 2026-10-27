@@ -6,6 +6,17 @@ import type {
   BankConnectionRecord,
 } from "./bank-types";
 import type { ExpenseRecord } from "./expense-types";
+import type {
+  BalanceSnapshotRecord,
+  LessonReadRecord,
+  LessonRecord,
+  LessonSaveRecord,
+  SavingsStreakRecord,
+  StatementTransactionRecord,
+  StreakWeekRecord,
+  UserBadgeRecord,
+  WeeklySummaryRecord,
+} from "./habit-types";
 import type { ConsentRecord, GoalRecord, UserRecord } from "./types";
 
 interface Snapshot {
@@ -15,6 +26,15 @@ interface Snapshot {
   bankConnections: BankConnectionRecord[];
   bankAccounts: BankAccountRecord[];
   expenses: ExpenseRecord[];
+  balanceSnapshots: BalanceSnapshotRecord[];
+  streakWeeks: StreakWeekRecord[];
+  savingsStreaks: SavingsStreakRecord[];
+  statementTransactions: StatementTransactionRecord[];
+  lessons: LessonRecord[];
+  lessonReads: LessonReadRecord[];
+  lessonSaves: LessonSaveRecord[];
+  userBadges: UserBadgeRecord[];
+  weeklySummaries: WeeklySummaryRecord[];
 }
 
 export class JsonStore implements DataStore {
@@ -25,6 +45,15 @@ export class JsonStore implements DataStore {
     bankConnections: [],
     bankAccounts: [],
     expenses: [],
+    balanceSnapshots: [],
+    streakWeeks: [],
+    savingsStreaks: [],
+    statementTransactions: [],
+    lessons: [],
+    lessonReads: [],
+    lessonSaves: [],
+    userBadges: [],
+    weeklySummaries: [],
   };
   private writeQueue: Promise<void> = Promise.resolve();
 
@@ -53,6 +82,15 @@ export class JsonStore implements DataStore {
         })),
         bankAccounts: parsed.bankAccounts ?? [],
         expenses: parsed.expenses ?? [],
+        balanceSnapshots: parsed.balanceSnapshots ?? [],
+        streakWeeks: parsed.streakWeeks ?? [],
+        savingsStreaks: parsed.savingsStreaks ?? [],
+        statementTransactions: parsed.statementTransactions ?? [],
+        lessons: parsed.lessons ?? [],
+        lessonReads: parsed.lessonReads ?? [],
+        lessonSaves: parsed.lessonSaves ?? [],
+        userBadges: parsed.userBadges ?? [],
+        weeklySummaries: parsed.weeklySummaries ?? [],
       };
     } catch {
       await this.persist();
@@ -251,5 +289,139 @@ export class JsonStore implements DataStore {
     );
     await this.persist();
     return this.snapshot.expenses.length < before;
+  }
+
+  async listBalanceSnapshots(userId: string) {
+    return this.snapshot.balanceSnapshots
+      .filter((item) => item.userId === userId)
+      .sort((a, b) => a.capturedAt.localeCompare(b.capturedAt));
+  }
+
+  async addBalanceSnapshot(snapshot: BalanceSnapshotRecord) {
+    this.snapshot.balanceSnapshots.push(snapshot);
+    await this.persist();
+    return snapshot;
+  }
+
+  async replaceStreakWeeks(userId: string, weeks: StreakWeekRecord[]) {
+    this.snapshot.streakWeeks = [
+      ...this.snapshot.streakWeeks.filter((item) => item.userId !== userId),
+      ...weeks,
+    ];
+    await this.persist();
+  }
+
+  async getSavingsStreak(userId: string) {
+    return (
+      this.snapshot.savingsStreaks.find((item) => item.userId === userId) ??
+      null
+    );
+  }
+
+  async saveSavingsStreak(streak: SavingsStreakRecord) {
+    this.snapshot.savingsStreaks = [
+      ...this.snapshot.savingsStreaks.filter((item) => item.userId !== streak.userId),
+      streak,
+    ];
+    await this.persist();
+    return streak;
+  }
+
+  async listStatementTransactions(userId: string) {
+    return this.snapshot.statementTransactions
+      .filter((item) => item.userId === userId)
+      .sort((a, b) => b.purchaseDate.localeCompare(a.purchaseDate));
+  }
+
+  async createStatementTransactions(rows: StatementTransactionRecord[]) {
+    this.snapshot.statementTransactions.push(...rows);
+    await this.persist();
+  }
+
+  async listLessons() {
+    return this.snapshot.lessons;
+  }
+
+  async saveLessons(lessons: LessonRecord[]) {
+    const ids = new Set(lessons.map((lesson) => lesson.id));
+    this.snapshot.lessons = [
+      ...this.snapshot.lessons.filter((lesson) => !ids.has(lesson.id)),
+      ...lessons,
+    ];
+    await this.persist();
+  }
+
+  async listLessonReads(userId: string) {
+    return this.snapshot.lessonReads.filter((item) => item.userId === userId);
+  }
+
+  async markLessonRead(read: LessonReadRecord) {
+    this.snapshot.lessonReads = [
+      ...this.snapshot.lessonReads.filter(
+        (item) => !(item.userId === read.userId && item.lessonId === read.lessonId),
+      ),
+      read,
+    ];
+    await this.persist();
+  }
+
+  async listLessonSaves(userId: string) {
+    return this.snapshot.lessonSaves
+      .filter((item) => item.userId === userId)
+      .sort((a, b) => b.savedAt.localeCompare(a.savedAt));
+  }
+
+  async setLessonSaved(save: LessonSaveRecord, saved: boolean) {
+    this.snapshot.lessonSaves = this.snapshot.lessonSaves.filter(
+      (item) => !(item.userId === save.userId && item.lessonId === save.lessonId),
+    );
+    if (saved) {
+      this.snapshot.lessonSaves.push(save);
+    }
+    await this.persist();
+  }
+
+  async listUserBadges(userId: string) {
+    return this.snapshot.userBadges
+      .filter((item) => item.userId === userId)
+      .sort((a, b) => b.earnedAt.localeCompare(a.earnedAt));
+  }
+
+  async awardBadge(badge: UserBadgeRecord) {
+    const exists = this.snapshot.userBadges.some(
+      (item) => item.userId === badge.userId && item.badgeId === badge.badgeId,
+    );
+    if (exists) {
+      return false;
+    }
+    this.snapshot.userBadges.push(badge);
+    await this.persist();
+    return true;
+  }
+
+  async listWeeklySummaries(userId: string) {
+    return this.snapshot.weeklySummaries
+      .filter((item) => item.userId === userId)
+      .sort((a, b) => b.weekStart.localeCompare(a.weekStart));
+  }
+
+  async getWeeklySummary(userId: string, weekStart: string) {
+    return (
+      this.snapshot.weeklySummaries.find(
+        (item) => item.userId === userId && item.weekStart === weekStart,
+      ) ?? null
+    );
+  }
+
+  async saveWeeklySummary(summary: WeeklySummaryRecord) {
+    this.snapshot.weeklySummaries = [
+      ...this.snapshot.weeklySummaries.filter(
+        (item) =>
+          !(item.userId === summary.userId && item.weekStart === summary.weekStart),
+      ),
+      summary,
+    ];
+    await this.persist();
+    return summary;
   }
 }

@@ -2,7 +2,11 @@
 
 import { Button } from "@/components/Button";
 import { useAuth } from "@/components/AuthProvider";
+import { CATEGORY_LABELS } from "@/lib/backend/habits";
+import type { ExpenseCategory } from "@/lib/backend/expense-types";
+import { CATEGORY_STYLE } from "@/lib/category-style";
 import type { ApiErrorPayload } from "@/lib/api";
+import { cn } from "@/lib/cn";
 import { formatDisplayDate } from "@/lib/dates";
 import { compressReceiptImage } from "@/lib/scan-receipt-browser";
 import { Loader2 } from "lucide-react";
@@ -176,6 +180,7 @@ export default function ExpensesPage() {
         </Link>
       </div>
 
+      <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
       <form onSubmit={onSubmit} className="game-panel space-y-4 rounded-3xl p-6">
         <label className="block text-sm font-medium text-ink" htmlFor="receipt">
           Receipt photo
@@ -229,44 +234,79 @@ export default function ExpensesPage() {
       </form>
 
       <div className="space-y-4">
-        <h2 className="font-display text-2xl text-ink">Your expenses</h2>
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <h2 className="font-display text-2xl text-ink">Your receipts</h2>
+          {expenses.length > 0 ? (
+            <p className="text-sm text-muted">
+              {expenses.length} saved · {MONEY.format(expenses.reduce((sum, expense) => sum + expense.amount, 0))}
+            </p>
+          ) : null}
+        </div>
         {expenses.length === 0 ? (
-          <p className="text-sm text-muted">No receipt expenses yet.</p>
+          <div className="game-panel rounded-3xl p-6">
+            <h3 className="font-display text-xl text-ink">No receipts yet</h3>
+            <p className="mt-2 text-sm leading-6 text-muted">
+              Photograph a receipt. The merchant, total, and category show up here.
+            </p>
+          </div>
         ) : (
-          expenses.map((expense) => (
-            <article key={expense.id} className="game-panel rounded-3xl p-5">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <h3 className="font-display text-xl text-ink">
-                    {expense.merchant}
-                  </h3>
-                  <p className="mt-1 text-sm text-muted">
-                    {formatDisplayDate(expense.purchaseDate)} ·{" "}
-                    {expense.category}
-                  </p>
-                </div>
-                <p className="font-semibold text-ink">
-                  {MONEY.format(expense.amount)}
-                </p>
-              </div>
-              {expense.receiptUrl ? (
-                <a
-                  href={expense.receiptUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="mt-3 inline-block overflow-hidden rounded-2xl border border-line"
-                >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={expense.receiptUrl}
-                    alt={`Receipt for ${expense.merchant}`}
-                    className="max-h-48 w-full max-w-xs object-contain bg-cream"
-                  />
-                </a>
-              ) : null}
-            </article>
-          ))
+          <ul className="grid gap-3">
+            {expenses.map((expense) => {
+              const known = expense.category in CATEGORY_STYLE;
+              const style = known
+                ? CATEGORY_STYLE[expense.category as ExpenseCategory]
+                : CATEGORY_STYLE.other;
+              const label = known
+                ? CATEGORY_LABELS[expense.category as ExpenseCategory]
+                : expense.category;
+              return (
+                <li key={expense.id} className="game-panel rounded-3xl p-5">
+                  <div className="flex items-start gap-3">
+                    <span
+                      className={cn("mt-2 h-2.5 w-2.5 shrink-0 rounded-full", style.dot)}
+                      aria-hidden="true"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <h3 className="font-display text-xl text-ink">{expense.merchant}</h3>
+                          <p className="mt-1 text-sm text-muted">
+                            {formatDisplayDate(expense.purchaseDate)}
+                          </p>
+                        </div>
+                        <p className="font-semibold text-ink">{MONEY.format(expense.amount)}</p>
+                      </div>
+                      <span
+                        className={cn(
+                          "mt-3 inline-flex rounded-full border px-2.5 py-0.5 text-xs font-semibold",
+                          style.chip,
+                        )}
+                      >
+                        {label}
+                      </span>
+                    </div>
+                  </div>
+                  {expense.receiptUrl ? (
+                    <a
+                      href={expense.receiptUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="mt-3 inline-block overflow-hidden rounded-2xl border border-line"
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={expense.receiptUrl}
+                        alt={`Receipt for ${expense.merchant}`}
+                        className="max-h-48 w-full max-w-xs object-contain bg-cream"
+                      />
+                    </a>
+                  ) : null}
+                </li>
+              );
+            })}
+          </ul>
         )}
+      </div>
       </div>
     </section>
   );

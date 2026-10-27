@@ -7,6 +7,27 @@ import type {
   BankConnectionRecord,
 } from "./bank-types";
 import type { ExpenseCategory, ExpenseRecord } from "./expense-types";
+import type { LessonRecord } from "./habit-types";
+import {
+  mapBadge,
+  mapLesson,
+  mapLessonRead,
+  mapLessonSave,
+  mapSavingsStreak,
+  mapSnapshot,
+  mapStatement,
+  mapSummary,
+} from "./habit-map";
+import type {
+  BalanceSnapshotRecord,
+  LessonReadRecord,
+  LessonSaveRecord,
+  SavingsStreakRecord,
+  StatementTransactionRecord,
+  StreakWeekRecord,
+  UserBadgeRecord,
+  WeeklySummaryRecord,
+} from "./habit-types";
 import type {
   ConsentRecord,
   GoalRecord,
@@ -520,5 +541,235 @@ export class SupabaseStore implements DataStore {
       return null;
     }
     return data.signedUrl;
+  }
+
+  async listBalanceSnapshots(userId: string) {
+    const { data, error } = await this.client
+      .from("balance_snapshots")
+      .select("*")
+      .eq("user_id", userId)
+      .order("captured_at", { ascending: true });
+    fail(error, "Could not load balance history.");
+    return (data ?? []).map((row) => mapSnapshot(row));
+  }
+
+  async addBalanceSnapshot(snapshot: BalanceSnapshotRecord) {
+    const { error } = await this.client.from("balance_snapshots").insert({
+      id: snapshot.id,
+      user_id: snapshot.userId,
+      captured_at: snapshot.capturedAt,
+      savings_cents: snapshot.savingsCents,
+    });
+    fail(error, "Could not save the savings snapshot.");
+    return snapshot;
+  }
+
+  async replaceStreakWeeks(userId: string, weeks: StreakWeekRecord[]) {
+    const { error: deleteError } = await this.client
+      .from("streak_weeks")
+      .delete()
+      .eq("user_id", userId);
+    fail(deleteError, "Could not reset streak history.");
+    if (weeks.length === 0) {
+      return;
+    }
+    const { error } = await this.client.from("streak_weeks").insert(
+      weeks.map((week) => ({
+        user_id: userId,
+        week_start: week.weekStart,
+        increased: week.increased,
+        start_cents: week.startCents,
+        end_cents: week.endCents,
+      })),
+    );
+    fail(error, "Could not save streak history.");
+  }
+
+  async getSavingsStreak(userId: string) {
+    const { data, error } = await this.client
+      .from("savings_streaks")
+      .select("*")
+      .eq("user_id", userId)
+      .maybeSingle();
+    fail(error, "Could not load the savings streak.");
+    return data ? mapSavingsStreak(data) : null;
+  }
+
+  async saveSavingsStreak(streak: SavingsStreakRecord) {
+    const { error } = await this.client.from("savings_streaks").upsert({
+      user_id: streak.userId,
+      current_streak: streak.currentStreak,
+      longest_streak: streak.longestStreak,
+      updated_at: streak.updatedAt,
+    });
+    fail(error, "Could not save the savings streak.");
+    return streak;
+  }
+
+  async listStatementTransactions(userId: string) {
+    const { data, error } = await this.client
+      .from("statement_transactions")
+      .select("*")
+      .eq("user_id", userId)
+      .order("purchase_date", { ascending: false });
+    fail(error, "Could not load statement transactions.");
+    return (data ?? []).map((row) => mapStatement(row));
+  }
+
+  async createStatementTransactions(rows: StatementTransactionRecord[]) {
+    if (rows.length === 0) {
+      return;
+    }
+    const { error } = await this.client.from("statement_transactions").insert(
+      rows.map((row) => ({
+        id: row.id,
+        user_id: row.userId,
+        merchant: row.merchant,
+        purchase_date: row.purchaseDate,
+        amount_cents: row.amountCents,
+        category: row.category,
+        created_at: row.createdAt,
+      })),
+    );
+    fail(error, "Could not save statement transactions.");
+  }
+
+  async listLessons() {
+    const { data, error } = await this.client
+      .from("lessons")
+      .select("*")
+      .order("id", { ascending: true });
+    fail(error, "Could not load lessons.");
+    return (data ?? []).map((row) => mapLesson(row));
+  }
+
+  async saveLessons(lessons: LessonRecord[]) {
+    const { error } = await this.client.from("lessons").upsert(
+      lessons.map((lesson) => ({
+        id: lesson.id,
+        title: lesson.title,
+        body: lesson.body,
+        takeaway: lesson.takeaway,
+        topics: lesson.topics,
+        minutes: lesson.minutes,
+        youtube_url: lesson.youtubeUrl,
+        youtube_label: lesson.youtubeLabel,
+        context_key: lesson.contextKey,
+      })),
+    );
+    fail(error, "Could not save lessons.");
+  }
+
+  async listLessonReads(userId: string) {
+    const { data, error } = await this.client
+      .from("lesson_reads")
+      .select("*")
+      .eq("user_id", userId);
+    fail(error, "Could not load lesson progress.");
+    return (data ?? []).map((row) => mapLessonRead(row));
+  }
+
+  async markLessonRead(read: LessonReadRecord) {
+    const { error } = await this.client.from("lesson_reads").upsert({
+      user_id: read.userId,
+      lesson_id: read.lessonId,
+      read_at: read.readAt,
+    });
+    fail(error, "Could not save the lesson.");
+  }
+
+  async listLessonSaves(userId: string) {
+    const { data, error } = await this.client
+      .from("lesson_saves")
+      .select("*")
+      .eq("user_id", userId)
+      .order("saved_at", { ascending: false });
+    fail(error, "Could not load saved lessons.");
+    return (data ?? []).map((row) => mapLessonSave(row));
+  }
+
+  async setLessonSaved(save: LessonSaveRecord, saved: boolean) {
+    if (!saved) {
+      const { error } = await this.client
+        .from("lesson_saves")
+        .delete()
+        .eq("user_id", save.userId)
+        .eq("lesson_id", save.lessonId);
+      fail(error, "Could not update the saved lesson.");
+      return;
+    }
+    const { error } = await this.client.from("lesson_saves").upsert({
+      user_id: save.userId,
+      lesson_id: save.lessonId,
+      saved_at: save.savedAt,
+    });
+    fail(error, "Could not save the lesson.");
+  }
+
+  async listUserBadges(userId: string) {
+    const { data, error } = await this.client
+      .from("user_badges")
+      .select("*")
+      .eq("user_id", userId)
+      .order("earned_at", { ascending: false });
+    fail(error, "Could not load badges.");
+    return (data ?? []).map((row) => mapBadge(row));
+  }
+
+  async awardBadge(badge: UserBadgeRecord) {
+    const { data, error } = await this.client
+      .from("user_badges")
+      .upsert(
+        {
+          user_id: badge.userId,
+          badge_id: badge.badgeId,
+          earned_at: badge.earnedAt,
+        },
+        { onConflict: "user_id,badge_id", ignoreDuplicates: true },
+      )
+      .select("badge_id");
+    fail(error, "Could not save the badge.");
+    return (data ?? []).length > 0;
+  }
+
+  async listWeeklySummaries(userId: string) {
+    const { data, error } = await this.client
+      .from("weekly_summaries")
+      .select("*")
+      .eq("user_id", userId)
+      .order("week_start", { ascending: false });
+    fail(error, "Could not load weekly summaries.");
+    return (data ?? []).map((row) => mapSummary(row));
+  }
+
+  async getWeeklySummary(userId: string, weekStart: string) {
+    const { data, error } = await this.client
+      .from("weekly_summaries")
+      .select("*")
+      .eq("user_id", userId)
+      .eq("week_start", weekStart)
+      .maybeSingle();
+    fail(error, "Could not load that weekly summary.");
+    return data ? mapSummary(data) : null;
+  }
+
+  async saveWeeklySummary(summary: WeeklySummaryRecord) {
+    const { error } = await this.client.from("weekly_summaries").upsert({
+      id: summary.id,
+      user_id: summary.userId,
+      week_start: summary.weekStart,
+      spending_cents: summary.spendingCents,
+      previous_spending_cents: summary.previousSpendingCents,
+      top_categories: summary.topCategories,
+      goal_note: summary.goalNote,
+      streak_note: summary.streakNote,
+      tip: summary.tip,
+      body: summary.body,
+      had_activity: summary.hadActivity,
+      source: summary.source,
+      created_at: summary.createdAt,
+    });
+    fail(error, "Could not save the weekly summary.");
+    return summary;
   }
 }

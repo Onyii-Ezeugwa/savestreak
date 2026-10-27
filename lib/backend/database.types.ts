@@ -308,6 +308,240 @@ export type Database = {
           },
         ];
       };
+      statement_transactions: {
+        Row: {
+          id: string;
+          user_id: string;
+          merchant: string;
+          purchase_date: string;
+          amount_cents: number;
+          category: string;
+          created_at: string;
+        };
+        Insert: {
+          id: string;
+          user_id: string;
+          merchant: string;
+          purchase_date: string;
+          amount_cents: number;
+          category: string;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          merchant?: string;
+          purchase_date?: string;
+          amount_cents?: number;
+          category?: string;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      balance_snapshots: {
+        Row: {
+          id: string;
+          user_id: string;
+          captured_at: string;
+          savings_cents: number;
+        };
+        Insert: {
+          id: string;
+          user_id: string;
+          captured_at: string;
+          savings_cents: number;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          captured_at?: string;
+          savings_cents?: number;
+        };
+        Relationships: [];
+      };
+      streak_weeks: {
+        Row: {
+          user_id: string;
+          week_start: string;
+          increased: boolean;
+          start_cents: number;
+          end_cents: number;
+        };
+        Insert: {
+          user_id: string;
+          week_start: string;
+          increased: boolean;
+          start_cents: number;
+          end_cents: number;
+        };
+        Update: {
+          user_id?: string;
+          week_start?: string;
+          increased?: boolean;
+          start_cents?: number;
+          end_cents?: number;
+        };
+        Relationships: [];
+      };
+      savings_streaks: {
+        Row: {
+          user_id: string;
+          current_streak: number;
+          longest_streak: number;
+          updated_at: string;
+        };
+        Insert: {
+          user_id: string;
+          current_streak: number;
+          longest_streak: number;
+          updated_at?: string;
+        };
+        Update: {
+          user_id?: string;
+          current_streak?: number;
+          longest_streak?: number;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      lessons: {
+        Row: {
+          id: string;
+          title: string;
+          body: string;
+          takeaway: string;
+          topics: string[];
+          minutes: number;
+          youtube_url: string;
+          youtube_label: string;
+          context_key: string;
+        };
+        Insert: {
+          id: string;
+          title: string;
+          body: string;
+          takeaway: string;
+          topics: string[];
+          minutes: number;
+          youtube_url?: string;
+          youtube_label?: string;
+          context_key?: string;
+        };
+        Update: {
+          id?: string;
+          title?: string;
+          body?: string;
+          takeaway?: string;
+          topics?: string[];
+          minutes?: number;
+          youtube_url?: string;
+          youtube_label?: string;
+          context_key?: string;
+        };
+        Relationships: [];
+      };
+      lesson_saves: {
+        Row: {
+          user_id: string;
+          lesson_id: string;
+          saved_at: string;
+        };
+        Insert: {
+          user_id: string;
+          lesson_id: string;
+          saved_at?: string;
+        };
+        Update: {
+          user_id?: string;
+          lesson_id?: string;
+          saved_at?: string;
+        };
+        Relationships: [];
+      };
+      lesson_reads: {
+        Row: {
+          user_id: string;
+          lesson_id: string;
+          read_at: string;
+        };
+        Insert: {
+          user_id: string;
+          lesson_id: string;
+          read_at?: string;
+        };
+        Update: {
+          user_id?: string;
+          lesson_id?: string;
+          read_at?: string;
+        };
+        Relationships: [];
+      };
+      user_badges: {
+        Row: {
+          user_id: string;
+          badge_id: string;
+          earned_at: string;
+        };
+        Insert: {
+          user_id: string;
+          badge_id: string;
+          earned_at?: string;
+        };
+        Update: {
+          user_id?: string;
+          badge_id?: string;
+          earned_at?: string;
+        };
+        Relationships: [];
+      };
+      weekly_summaries: {
+        Row: {
+          id: string;
+          user_id: string;
+          week_start: string;
+          spending_cents: number;
+          previous_spending_cents: number | null;
+          top_categories: Json;
+          goal_note: string;
+          streak_note: string;
+          tip: string;
+          body: string;
+          had_activity: boolean;
+          source: string;
+          created_at: string;
+        };
+        Insert: {
+          id: string;
+          user_id: string;
+          week_start: string;
+          spending_cents: number;
+          previous_spending_cents?: number | null;
+          top_categories: Json;
+          goal_note: string;
+          streak_note: string;
+          tip: string;
+          body: string;
+          had_activity: boolean;
+          source: string;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          week_start?: string;
+          spending_cents?: number;
+          previous_spending_cents?: number | null;
+          top_categories?: Json;
+          goal_note?: string;
+          streak_note?: string;
+          tip?: string;
+          body?: string;
+          had_activity?: boolean;
+          source?: string;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
     };
     Views: {
       [_ in never]: never;

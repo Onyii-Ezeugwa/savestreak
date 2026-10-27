@@ -215,7 +215,13 @@ export function BankConnectFlow() {
           </div>
         </div>
         {connections.length === 0 ? (
-          <p className="text-sm text-muted">No banks connected yet.</p>
+          <div className="game-panel rounded-3xl p-6">
+            <h3 className="font-display text-xl text-ink">No banks connected yet</h3>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-muted">
+              Use Link above to choose a bank. Checking, savings, and card
+              balances show up here after you connect.
+            </p>
+          </div>
         ) : (
           connections.map((connection) => (
             <article key={connection.id} className="game-panel rounded-3xl p-5">

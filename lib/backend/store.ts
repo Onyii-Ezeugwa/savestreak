@@ -4,6 +4,17 @@ import type {
   BankConnectionRecord,
 } from "./bank-types";
 import type { ExpenseRecord } from "./expense-types";
+import type {
+  BalanceSnapshotRecord,
+  LessonReadRecord,
+  LessonRecord,
+  LessonSaveRecord,
+  SavingsStreakRecord,
+  StatementTransactionRecord,
+  StreakWeekRecord,
+  UserBadgeRecord,
+  WeeklySummaryRecord,
+} from "./habit-types";
 
 export interface DataStore {
   getUserByEmail(email: string): Promise<UserRecord | null>;
@@ -54,4 +65,33 @@ export interface DataStore {
     mimeType: string,
   ): Promise<string>;
   getReceiptSignedUrl?(path: string): Promise<string | null>;
+  listBalanceSnapshots(userId: string): Promise<BalanceSnapshotRecord[]>;
+  addBalanceSnapshot(
+    snapshot: BalanceSnapshotRecord,
+  ): Promise<BalanceSnapshotRecord>;
+  replaceStreakWeeks(userId: string, weeks: StreakWeekRecord[]): Promise<void>;
+  getSavingsStreak(userId: string): Promise<SavingsStreakRecord | null>;
+  saveSavingsStreak(streak: SavingsStreakRecord): Promise<SavingsStreakRecord>;
+  listStatementTransactions(
+    userId: string,
+  ): Promise<StatementTransactionRecord[]>;
+  createStatementTransactions(
+    rows: StatementTransactionRecord[],
+  ): Promise<void>;
+  listLessons(): Promise<LessonRecord[]>;
+  saveLessons(lessons: LessonRecord[]): Promise<void>;
+  listLessonReads(userId: string): Promise<LessonReadRecord[]>;
+  markLessonRead(read: LessonReadRecord): Promise<void>;
+  listLessonSaves(userId: string): Promise<LessonSaveRecord[]>;
+  setLessonSaved(save: LessonSaveRecord, saved: boolean): Promise<void>;
+  listUserBadges(userId: string): Promise<UserBadgeRecord[]>;
+  awardBadge(badge: UserBadgeRecord): Promise<boolean>;
+  listWeeklySummaries(userId: string): Promise<WeeklySummaryRecord[]>;
+  getWeeklySummary(
+    userId: string,
+    weekStart: string,
+  ): Promise<WeeklySummaryRecord | null>;
+  saveWeeklySummary(
+    summary: WeeklySummaryRecord,
+  ): Promise<WeeklySummaryRecord>;
 }
