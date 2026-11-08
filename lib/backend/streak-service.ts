@@ -9,13 +9,21 @@ function todayIso() {
 export async function recordSavingsSnapshot(
   store: DataStore,
   userId: string,
-  savingsCents: number,
+  input: {
+    savingsCents: number;
+    assetsCents?: number | null;
+    debtsCents?: number | null;
+    netWorthCents?: number | null;
+  },
 ) {
   await store.addBalanceSnapshot({
     id: randomUUID(),
     userId,
     capturedAt: new Date().toISOString(),
-    savingsCents,
+    savingsCents: input.savingsCents,
+    assetsCents: input.assetsCents ?? null,
+    debtsCents: input.debtsCents ?? null,
+    netWorthCents: input.netWorthCents ?? null,
   });
   return recomputeStreak(store, userId);
 }

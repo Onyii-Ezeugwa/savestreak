@@ -7,7 +7,8 @@ import { CATEGORY_STYLE } from "@/lib/category-style";
 import { cn } from "@/lib/cn";
 import { formatDateInputValue, formatDisplayDate } from "@/lib/dates";
 import type { ExpenseCategory } from "@/lib/backend/expense-types";
-import Link from "next/link";
+import { BackLink } from "@/components/BackLink";
+import { PageFooterNav } from "@/components/PageFooterNav";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, type FormEvent } from "react";
 
@@ -113,8 +114,9 @@ export default function TransactionsPage() {
   const top = payload?.totals[0];
 
   return (
-    <section className="mx-auto max-w-6xl space-y-8 px-5 py-14 sm:px-6 lg:px-8">
-      <div className="flex flex-wrap items-end justify-between gap-3">
+    <section className="page-enter mx-auto max-w-6xl space-y-8 px-5 py-14 sm:px-6 lg:px-8">
+      <div className="flex items-start gap-4">
+        <BackLink />
         <div>
           <p className="text-xs font-bold uppercase tracking-[0.16em] text-teal">
             Spending
@@ -125,9 +127,6 @@ export default function TransactionsPage() {
             These records stay as they were captured.
           </p>
         </div>
-        <Link href="/dashboard" className="text-sm font-medium text-teal hover:underline">
-          Back to dashboard
-        </Link>
       </div>
 
       {payload && !payload.hasAny ? (
@@ -403,6 +402,7 @@ export default function TransactionsPage() {
           ) : null}
         </div>
       ) : null}
+      <PageFooterNav />
     </section>
   );
 }

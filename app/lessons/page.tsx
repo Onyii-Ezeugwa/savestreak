@@ -3,6 +3,8 @@
 import { useAuth } from "@/components/AuthProvider";
 import { LessonArticle } from "@/components/LessonArticle";
 import { SaveLessonButton } from "@/components/SaveLessonButton";
+import { BackLink } from "@/components/BackLink";
+import { PageFooterNav } from "@/components/PageFooterNav";
 import { ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -97,14 +99,16 @@ export default function LessonsPage() {
   }, [user]);
 
   return (
-    <section className="mx-auto max-w-5xl px-5 py-14 sm:px-6">
-      <Link href="/dashboard" className="text-sm font-medium text-teal hover:underline">
-        Back to dashboard
-      </Link>
-      <p className="mt-6 text-xs font-bold uppercase tracking-[0.16em] text-teal">
-        Financial learning
-      </p>
-      <h1 className="mt-2 font-display text-4xl text-ink">Your lesson</h1>
+    <section className="page-enter mx-auto max-w-5xl px-5 py-14 sm:px-6">
+      <div className="flex items-start gap-4">
+        <BackLink />
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-teal">
+            Financial learning
+          </p>
+          <h1 className="mt-2 font-display text-4xl text-ink">Your lesson</h1>
+        </div>
+      </div>
 
       {writing ? (
         <div
@@ -271,6 +275,7 @@ export default function LessonsPage() {
           </ul>
         </div>
       ) : null}
+      <PageFooterNav />
     </section>
   );
 }

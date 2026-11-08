@@ -1,9 +1,11 @@
 import { BankConnectFlow } from "@/components/BankConnectFlow";
+import { PageFooterNav } from "@/components/PageFooterNav";
 
 export default function ConnectBankPage() {
   return (
-    <section className="mx-auto max-w-6xl px-5 py-14 sm:px-6 lg:px-8">
+    <section className="page-enter mx-auto max-w-6xl px-5 py-14 sm:px-6 lg:px-8">
       <BankConnectFlow />
+      <PageFooterNav />
     </section>
   );
 }

@@ -80,8 +80,10 @@ export type Database = {
           created_at: string;
           decided_at: string | null;
           decision: string;
+          expires_at: string | null;
           guardian_email: string;
           id: string;
+          sent_at: string | null;
           token: string;
           user_id: string;
         };
@@ -89,8 +91,10 @@ export type Database = {
           created_at?: string;
           decided_at?: string | null;
           decision: string;
+          expires_at?: string | null;
           guardian_email: string;
           id?: string;
+          sent_at?: string | null;
           token: string;
           user_id: string;
         };
@@ -98,8 +102,10 @@ export type Database = {
           created_at?: string;
           decided_at?: string | null;
           decision?: string;
+          expires_at?: string | null;
           guardian_email?: string;
           id?: string;
+          sent_at?: string | null;
           token?: string;
           user_id?: string;
         };
@@ -120,6 +126,7 @@ export type Database = {
           id: string;
           linked_account_id: string | null;
           name: string;
+          plan_stale: boolean;
           saved_plan: Record<string, unknown> | null;
           saved_plan_at: string | null;
           target_amount_cents: number;
@@ -133,6 +140,7 @@ export type Database = {
           id?: string;
           linked_account_id?: string | null;
           name: string;
+          plan_stale?: boolean;
           saved_plan?: Record<string, unknown> | null;
           saved_plan_at?: string | null;
           target_amount_cents: number;
@@ -146,6 +154,7 @@ export type Database = {
           id?: string;
           linked_account_id?: string | null;
           name?: string;
+          plan_stale?: boolean;
           saved_plan?: Record<string, unknown> | null;
           saved_plan_at?: string | null;
           target_amount_cents?: number;
@@ -342,19 +351,28 @@ export type Database = {
         Row: {
           id: string;
           user_id: string;
+          assets_cents: number | null;
           captured_at: string;
+          debts_cents: number | null;
+          net_worth_cents: number | null;
           savings_cents: number;
         };
         Insert: {
           id: string;
           user_id: string;
+          assets_cents?: number | null;
           captured_at: string;
+          debts_cents?: number | null;
+          net_worth_cents?: number | null;
           savings_cents: number;
         };
         Update: {
           id?: string;
           user_id?: string;
+          assets_cents?: number | null;
           captured_at?: string;
+          debts_cents?: number | null;
+          net_worth_cents?: number | null;
           savings_cents?: number;
         };
         Relationships: [];
@@ -437,6 +455,90 @@ export type Database = {
           youtube_url?: string;
           youtube_label?: string;
           context_key?: string;
+        };
+        Relationships: [];
+      };
+      consent_resends: {
+        Row: {
+          id: string;
+          user_id: string;
+          consent_id: string;
+          guardian_email: string;
+          sent_at: string;
+        };
+        Insert: {
+          id: string;
+          user_id: string;
+          consent_id: string;
+          guardian_email: string;
+          sent_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          consent_id?: string;
+          guardian_email?: string;
+          sent_at?: string;
+        };
+        Relationships: [];
+      };
+      goal_changes: {
+        Row: {
+          id: string;
+          goal_id: string;
+          user_id: string;
+          old_target_amount_cents: number;
+          new_target_amount_cents: number;
+          old_target_date: string;
+          new_target_date: string;
+          changed_at: string;
+        };
+        Insert: {
+          id: string;
+          goal_id: string;
+          user_id: string;
+          old_target_amount_cents: number;
+          new_target_amount_cents: number;
+          old_target_date: string;
+          new_target_date: string;
+          changed_at?: string;
+        };
+        Update: {
+          id?: string;
+          goal_id?: string;
+          user_id?: string;
+          old_target_amount_cents?: number;
+          new_target_amount_cents?: number;
+          old_target_date?: string;
+          new_target_date?: string;
+          changed_at?: string;
+        };
+        Relationships: [];
+      };
+      password_resets: {
+        Row: {
+          id: string;
+          user_id: string;
+          token_hash: string;
+          expires_at: string;
+          used_at: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id: string;
+          user_id: string;
+          token_hash: string;
+          expires_at: string;
+          used_at?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          token_hash?: string;
+          expires_at?: string;
+          used_at?: string | null;
+          created_at?: string;
         };
         Relationships: [];
       };

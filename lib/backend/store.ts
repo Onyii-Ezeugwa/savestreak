@@ -1,4 +1,11 @@
-import type { ConsentRecord, GoalRecord, UserRecord } from "./types";
+import type {
+  ConsentRecord,
+  ConsentResendRecord,
+  GoalChangeRecord,
+  GoalRecord,
+  PasswordResetRecord,
+  UserRecord,
+} from "./types";
 import type {
   BankAccountRecord,
   BankConnectionRecord,
@@ -22,10 +29,24 @@ export interface DataStore {
   getAuthUserIdByEmail?(email: string): Promise<string | null>;
   createUser(user: UserRecord): Promise<UserRecord>;
   updateUser(user: UserRecord): Promise<UserRecord>;
+  createPasswordReset(reset: PasswordResetRecord): Promise<void>;
+  invalidateOpenPasswordResets(userId: string): Promise<void>;
+  claimPasswordReset(
+    tokenHash: string,
+    usedAt: string,
+  ): Promise<
+    | { status: "ok"; reset: PasswordResetRecord }
+    | { status: "missing" | "used" | "expired" }
+  >;
+  releasePasswordReset(id: string): Promise<void>;
   createConsent(consent: ConsentRecord): Promise<ConsentRecord>;
   getConsentByToken(token: string): Promise<ConsentRecord | null>;
   getConsentByUserId(userId: string): Promise<ConsentRecord | null>;
   updateConsent(consent: ConsentRecord): Promise<ConsentRecord>;
+  countConsentResends(userId: string, since: string): Promise<number>;
+  createConsentResend(record: ConsentResendRecord): Promise<void>;
+  listGoalChanges(userId: string): Promise<GoalChangeRecord[]>;
+  createGoalChange(change: GoalChangeRecord): Promise<void>;
   listGoals(userId: string): Promise<GoalRecord[]>;
   getGoal(id: string, userId: string): Promise<GoalRecord | null>;
   createGoal(goal: GoalRecord): Promise<GoalRecord>;

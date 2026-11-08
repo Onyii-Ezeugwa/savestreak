@@ -3,7 +3,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { DataStore } from "./store";
 import { passwordError } from "@/lib/password";
 import { parseProfileInput } from "@/lib/profile";
+import { CONSENT_TTL_MS } from "./consent-rules";
 import { sendConsentEmail } from "./mail";
+import { confirmPasswordReset, requestPasswordReset } from "./password-reset";
 import {
   ApiError,
   appUrl,
@@ -285,6 +287,8 @@ export class AuthService {
           decision: "pending",
           decidedAt: null,
           createdAt: now,
+          sentAt: now,
+          expiresAt: new Date(Date.now() + CONSENT_TTL_MS).toISOString(),
         };
         await this.store.createConsent(consent);
         consentUrl = `${appUrl()}/consent/${consent.token}`;
@@ -393,6 +397,18 @@ export class AuthService {
     return {
       user: toPublicUser(record),
     };
+  }
+
+  async requestPasswordReset(email: unknown) {
+    return requestPasswordReset(this.store, email);
+  }
+
+  async confirmPasswordReset(input: {
+    token?: unknown;
+    password?: unknown;
+    confirmPassword?: unknown;
+  }) {
+    return confirmPasswordReset(this.store, input);
   }
 
   async me(userId: string) {

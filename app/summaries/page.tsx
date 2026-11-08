@@ -5,7 +5,8 @@ import { useAuth } from "@/components/AuthProvider";
 import { cn } from "@/lib/cn";
 import { formatDateInputValue, formatDisplayDate } from "@/lib/dates";
 import { Loader2 } from "lucide-react";
-import Link from "next/link";
+import { BackLink } from "@/components/BackLink";
+import { PageFooterNav } from "@/components/PageFooterNav";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
@@ -91,8 +92,9 @@ export default function SummariesPage() {
   }
 
   return (
-    <section className="mx-auto max-w-5xl space-y-6 px-5 py-14 sm:px-6">
-      <div className="flex flex-wrap items-end justify-between gap-4">
+    <section className="page-enter mx-auto max-w-5xl space-y-6 px-5 py-14 sm:px-6">
+      <div className="flex items-start gap-4">
+        <BackLink />
         <div>
           <p className="text-xs font-bold uppercase tracking-[0.16em] text-teal">
             This week
@@ -103,9 +105,6 @@ export default function SummariesPage() {
             summaries stay here.
           </p>
         </div>
-        <Link href="/dashboard" className="text-sm font-medium text-teal hover:underline">
-          Back to dashboard
-        </Link>
       </div>
 
       <div className="flex flex-wrap gap-2">
@@ -217,6 +216,7 @@ export default function SummariesPage() {
           </ul>
         </div>
       ) : null}
+      <PageFooterNav />
     </section>
   );
 }

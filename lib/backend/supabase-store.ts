@@ -30,7 +30,10 @@ import type {
 } from "./habit-types";
 import type {
   ConsentRecord,
+  ConsentResendRecord,
+  GoalChangeRecord,
   GoalRecord,
+  PasswordResetRecord,
   UserRecord,
 } from "./types";
 import { ApiError } from "./types";
@@ -73,6 +76,12 @@ function mapConsent(row: Record<string, unknown>): ConsentRecord {
     decision: row.decision as ConsentRecord["decision"],
     decidedAt: row.decided_at ? String(row.decided_at) : null,
     createdAt: String(row.created_at),
+    sentAt: row.sent_at ? String(row.sent_at) : String(row.created_at),
+    expiresAt: row.expires_at
+      ? String(row.expires_at)
+      : new Date(
+          new Date(String(row.created_at)).getTime() + 7 * 24 * 60 * 60 * 1000,
+        ).toISOString(),
   };
 }
 
@@ -92,6 +101,7 @@ function mapGoal(row: Record<string, unknown>): GoalRecord {
         ? (row.saved_plan as Record<string, unknown>)
         : null,
     savedPlanAt: row.saved_plan_at ? String(row.saved_plan_at) : null,
+    planStale: Boolean(row.plan_stale),
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
   };
@@ -243,6 +253,8 @@ export class SupabaseStore implements DataStore {
       decision: consent.decision,
       decided_at: consent.decidedAt,
       created_at: consent.createdAt,
+      sent_at: consent.sentAt,
+      expires_at: consent.expiresAt,
     });
     fail(error, "Could not create the consent request.");
     return consent;
@@ -274,8 +286,12 @@ export class SupabaseStore implements DataStore {
     const { error } = await this.client
       .from("consents")
       .update({
+        guardian_email: consent.guardianEmail,
+        token: consent.token,
         decision: consent.decision,
         decided_at: consent.decidedAt,
+        sent_at: consent.sentAt,
+        expires_at: consent.expiresAt,
       })
       .eq("id", consent.id);
     fail(error, "Could not update the consent request.");
@@ -314,6 +330,7 @@ export class SupabaseStore implements DataStore {
       linked_account_id: goal.linkedAccountId,
       saved_plan: goal.savedPlan,
       saved_plan_at: goal.savedPlanAt,
+      plan_stale: goal.planStale,
       created_at: goal.createdAt,
       updated_at: goal.updatedAt,
     });
@@ -333,6 +350,7 @@ export class SupabaseStore implements DataStore {
         linked_account_id: goal.linkedAccountId,
         saved_plan: goal.savedPlan,
         saved_plan_at: goal.savedPlanAt,
+        plan_stale: goal.planStale,
         updated_at: goal.updatedAt,
       })
       .eq("id", goal.id);
@@ -559,6 +577,9 @@ export class SupabaseStore implements DataStore {
       user_id: snapshot.userId,
       captured_at: snapshot.capturedAt,
       savings_cents: snapshot.savingsCents,
+      assets_cents: snapshot.assetsCents,
+      debts_cents: snapshot.debtsCents,
+      net_worth_cents: snapshot.netWorthCents,
     });
     fail(error, "Could not save the savings snapshot.");
     return snapshot;
@@ -772,4 +793,133 @@ export class SupabaseStore implements DataStore {
     fail(error, "Could not save the weekly summary.");
     return summary;
   }
+
+  async createPasswordReset(reset: PasswordResetRecord) {
+    const { error } = await this.client.from("password_resets").insert({
+      id: reset.id,
+      user_id: reset.userId,
+      token_hash: reset.tokenHash,
+      expires_at: reset.expiresAt,
+      used_at: reset.usedAt,
+      created_at: reset.createdAt,
+    });
+    fail(error, "Could not start the password reset.");
+  }
+
+  async invalidateOpenPasswordResets(userId: string) {
+    const { error } = await this.client
+      .from("password_resets")
+      .update({ used_at: new Date().toISOString() })
+      .eq("user_id", userId)
+      .is("used_at", null);
+    fail(error, "Could not start the password reset.");
+  }
+
+  async claimPasswordReset(tokenHash: string, usedAt: string) {
+    const { data, error } = await this.client
+      .from("password_resets")
+      .update({ used_at: usedAt })
+      .eq("token_hash", tokenHash)
+      .is("used_at", null)
+      .gt("expires_at", new Date().toISOString())
+      .select("*")
+      .maybeSingle();
+    fail(error, "Could not use that reset link.");
+    if (data) {
+      return { status: "ok" as const, reset: mapPasswordReset(data) };
+    }
+    const existing = await this.client
+      .from("password_resets")
+      .select("*")
+      .eq("token_hash", tokenHash)
+      .maybeSingle();
+    fail(existing.error, "Could not use that reset link.");
+    if (!existing.data) {
+      return { status: "missing" as const };
+    }
+    if (existing.data.used_at) {
+      return { status: "used" as const };
+    }
+    return { status: "expired" as const };
+  }
+
+  async releasePasswordReset(id: string) {
+    const { error } = await this.client
+      .from("password_resets")
+      .update({ used_at: null })
+      .eq("id", id);
+    fail(error, "Could not use that reset link.");
+  }
+
+  async countConsentResends(userId: string, since: string) {
+    const { count, error } = await this.client
+      .from("consent_resends")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", userId)
+      .gte("sent_at", since);
+    fail(error, "Could not check consent emails.");
+    return count ?? 0;
+  }
+
+  async createConsentResend(record: ConsentResendRecord) {
+    const { error } = await this.client.from("consent_resends").insert({
+      id: record.id,
+      user_id: record.userId,
+      consent_id: record.consentId,
+      guardian_email: record.guardianEmail,
+      sent_at: record.sentAt,
+    });
+    fail(error, "Could not record the consent email.");
+  }
+
+  async listGoalChanges(userId: string) {
+    const { data, error } = await this.client
+      .from("goal_changes")
+      .select("*")
+      .eq("user_id", userId)
+      .order("changed_at", { ascending: false });
+    fail(error, "Could not load goal history.");
+    return (data ?? []).map((row) => ({
+      id: row.id,
+      goalId: row.goal_id,
+      userId: row.user_id,
+      oldTargetAmountCents: row.old_target_amount_cents,
+      newTargetAmountCents: row.new_target_amount_cents,
+      oldTargetDate: String(row.old_target_date).slice(0, 10),
+      newTargetDate: String(row.new_target_date).slice(0, 10),
+      changedAt: row.changed_at,
+    }));
+  }
+
+  async createGoalChange(change: GoalChangeRecord) {
+    const { error } = await this.client.from("goal_changes").insert({
+      id: change.id,
+      goal_id: change.goalId,
+      user_id: change.userId,
+      old_target_amount_cents: change.oldTargetAmountCents,
+      new_target_amount_cents: change.newTargetAmountCents,
+      old_target_date: change.oldTargetDate,
+      new_target_date: change.newTargetDate,
+      changed_at: change.changedAt,
+    });
+    fail(error, "Could not record the goal change.");
+  }
+}
+
+function mapPasswordReset(row: {
+  id: string;
+  user_id: string;
+  token_hash: string;
+  expires_at: string;
+  used_at: string | null;
+  created_at: string;
+}): PasswordResetRecord {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    tokenHash: row.token_hash,
+    expiresAt: row.expires_at,
+    usedAt: row.used_at,
+    createdAt: row.created_at,
+  };
 }

@@ -68,3 +68,31 @@ export function goalPaceStatus(input: {
 
   return input.currentAmountCents >= expectedCents ? "on_track" : "behind";
 }
+
+export function requiredSavings(input: {
+  currentAmountCents: number;
+  targetAmountCents: number;
+  targetDate: string;
+  today?: Date;
+}) {
+  const target = parseDateOnly(input.targetDate);
+  const today = input.today ?? startOfToday();
+  if (!target || target < today || input.targetAmountCents <= 0) {
+    return null;
+  }
+  const remainingCents = goalRemainingCents(
+    input.currentAmountCents,
+    input.targetAmountCents,
+  );
+  const days = Math.max(
+    1,
+    Math.round((target.getTime() - today.getTime()) / 86_400_000),
+  );
+  const weeks = Math.max(1, Math.ceil(days / 7));
+  const months = Math.max(1, Math.ceil(days / 30));
+  return {
+    remainingCents,
+    weeklyCents: Math.ceil(remainingCents / weeks),
+    monthlyCents: Math.ceil(remainingCents / months),
+  };
+}

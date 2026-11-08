@@ -25,6 +25,14 @@ export interface AccountGoal {
   linkedAccountId: string | null;
   savedPlan: Record<string, unknown> | null;
   savedPlanAt: string | null;
+  planStale: boolean;
+  changes: Array<{
+    oldTargetAmount: number;
+    newTargetAmount: number;
+    oldTargetDate: string;
+    newTargetDate: string;
+    changedAt: string;
+  }>;
   createdAt: string;
   updatedAt: string;
 }

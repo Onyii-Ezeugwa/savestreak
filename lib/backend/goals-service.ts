@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { GoalChangeRecord } from "./types";
 import { parseDateOnly } from "./auth-service";
 import type { DataStore } from "./store";
 import {
@@ -59,6 +60,8 @@ export function toPublicGoal(
     linkedAccountId: goal.linkedAccountId,
     savedPlan: goal.savedPlan,
     savedPlanAt: goal.savedPlanAt,
+    planStale: goal.planStale,
+    changes: [],
     createdAt: goal.createdAt,
     updatedAt: goal.updatedAt,
   };
@@ -95,22 +98,41 @@ export class GoalsService {
 
   async list(user: UserRecord) {
     requireActiveAccount(user);
-    const goals = await this.store.listGoals(user.id);
-    const accounts =
+    const [goals, changes, accounts] = await Promise.all([
+      this.store.listGoals(user.id),
+      this.store.listGoalChanges(user.id),
       typeof this.store.listBankAccounts === "function"
-        ? await this.store.listBankAccounts(user.id)
-        : [];
+        ? this.store.listBankAccounts(user.id)
+        : Promise.resolve([]),
+    ]);
+    const changesByGoal = new Map<string, GoalChangeRecord[]>();
+    for (const change of changes) {
+      const list = changesByGoal.get(change.goalId) ?? [];
+      list.push(change);
+      changesByGoal.set(change.goalId, list);
+    }
+    const accountsForGoals = accounts;
     const balanceById = new Map(
-      accounts.map((account) => [account.id, account.balanceCents]),
+      accountsForGoals.map((account) => [account.id, account.balanceCents]),
     );
-    return goals.map((goal) =>
-      toPublicGoal(
+    return goals.map((goal) => ({
+      ...toPublicGoal(
         goal,
         goal.linkedAccountId
           ? (balanceById.get(goal.linkedAccountId) ?? null)
           : null,
       ),
-    );
+      changes: (changesByGoal.get(goal.id) ?? [])
+        .sort((a, b) => b.changedAt.localeCompare(a.changedAt))
+        .slice(0, 8)
+        .map((change) => ({
+        oldTargetAmount: change.oldTargetAmountCents / 100,
+        newTargetAmount: change.newTargetAmountCents / 100,
+        oldTargetDate: change.oldTargetDate,
+        newTargetDate: change.newTargetDate,
+        changedAt: change.changedAt,
+      })),
+    }));
   }
 
   async create(
@@ -138,6 +160,7 @@ export class GoalsService {
       linkedAccountId: null,
       savedPlan: null,
       savedPlanAt: null,
+      planStale: false,
       createdAt: now,
       updatedAt: now,
     };
@@ -199,15 +222,34 @@ export class GoalsService {
       }
     }
 
+    const now = new Date().toISOString();
+    const nextTargetAmount = parsed.targetAmountCents;
+    const nextTargetDate = parsed.targetDate || existing.targetDate;
+    const targetChanged =
+      nextTargetAmount !== existing.targetAmountCents ||
+      nextTargetDate !== existing.targetDate;
     const updated: GoalRecord = {
       ...existing,
       name: parsed.name || existing.name,
-      targetAmountCents: parsed.targetAmountCents,
+      targetAmountCents: nextTargetAmount,
       currentAmountCents,
-      targetDate: parsed.targetDate || existing.targetDate,
+      targetDate: nextTargetDate,
       linkedAccountId,
-      updatedAt: new Date().toISOString(),
+      planStale: targetChanged && existing.savedPlan != null ? true : existing.planStale,
+      updatedAt: now,
     };
+    if (targetChanged) {
+      await this.store.createGoalChange({
+        id: randomUUID(),
+        goalId: existing.id,
+        userId: user.id,
+        oldTargetAmountCents: existing.targetAmountCents,
+        newTargetAmountCents: nextTargetAmount,
+        oldTargetDate: existing.targetDate,
+        newTargetDate: nextTargetDate,
+        changedAt: now,
+      });
+    }
     await this.store.updateGoal(updated);
     return toPublicGoal(
       updated,
@@ -275,6 +317,7 @@ export class GoalsService {
       ...existing,
       savedPlan: plan,
       savedPlanAt: new Date().toISOString(),
+      planStale: false,
       updatedAt: new Date().toISOString(),
     };
     await this.store.updateGoal(updated);

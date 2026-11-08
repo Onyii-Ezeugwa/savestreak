@@ -44,6 +44,9 @@ export function mapSnapshot(row: Record<string, unknown>): BalanceSnapshotRecord
     userId: String(row.user_id),
     capturedAt: timestamp(row.captured_at),
     savingsCents: Number(row.savings_cents),
+    assetsCents: row.assets_cents == null ? null : Number(row.assets_cents),
+    debtsCents: row.debts_cents == null ? null : Number(row.debts_cents),
+    netWorthCents: row.net_worth_cents == null ? null : Number(row.net_worth_cents),
   };
 }
 

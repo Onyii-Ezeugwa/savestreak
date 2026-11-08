@@ -2,6 +2,7 @@
 
 import { Button } from "@/components/Button";
 import { Logo } from "@/components/Logo";
+import { UserAvatar } from "@/components/UserAvatar";
 import { useAuth } from "@/components/AuthProvider";
 import { cn } from "@/lib/cn";
 import { Flame, Menu, X } from "lucide-react";
@@ -70,6 +71,14 @@ export function Navbar() {
           ))}
         </nav>
 
+        <div className="flex items-center gap-2">
+        {user ? (
+          <UserAvatar
+            firstName={user.firstName}
+            lastName={user.lastName}
+            href="/profile"
+          />
+        ) : null}
         <div className="hidden items-center gap-2 sm:flex">
           {user ? (
             <>
@@ -109,6 +118,7 @@ export function Navbar() {
         >
           {open ? <X size={18} /> : <Menu size={18} />}
         </button>
+        </div>
       </div>
 
       <div
@@ -136,6 +146,19 @@ export function Navbar() {
           <div className="mt-3 flex flex-col gap-2 sm:hidden">
             {user ? (
               <>
+                <Link
+                  href="/profile"
+                  className="flex items-center gap-3 rounded-xl px-3 py-3 hover:bg-cream-dark/70"
+                  onClick={() => setOpen(false)}
+                >
+                  <UserAvatar firstName={user.firstName} lastName={user.lastName} />
+                  <span>
+                    <span className="block text-sm font-semibold text-ink">
+                      {user.firstName} {user.lastName}
+                    </span>
+                    <span className="block text-xs text-muted">Profile</span>
+                  </span>
+                </Link>
                 <Button href="/dashboard" variant="secondary">
                   Dashboard
                 </Button>

@@ -9,7 +9,7 @@ import { useEffect, useState } from "react";
 interface ConsentView {
   studentFirstName: string;
   guardianEmail: string;
-  decision: "pending" | "approved" | "declined";
+  decision: "pending" | "approved" | "declined" | "expired";
   decidedAt: string | null;
 }
 
@@ -71,12 +71,16 @@ export default function ConsentPage() {
                 ? `Approve ${consent.studentFirstName}'s $aveStreak account?`
                 : consent.decision === "approved"
                   ? "Consent approved"
-                  : "Consent declined"}
+                  : consent.decision === "expired"
+                    ? "This consent link expired"
+                    : "Consent declined"}
             </h1>
             <p className="mt-3 text-sm leading-6 text-muted">
               {consent.decision === "pending"
                 ? `${consent.studentFirstName} asked you to decide whether they can use $aveStreak. Approving activates their account. Declining keeps it restricted.`
-                : `This request was ${consent.decision} and the decision is on file.`}
+                : consent.decision === "expired"
+                  ? "Ask the student to send a new consent email. This link no longer works."
+                  : `This request was ${consent.decision} and the decision is on file.`}
             </p>
             {error ? (
               <p className="mt-4 text-sm text-orange">{error}</p>

@@ -11,7 +11,7 @@ import { createServerSupabase } from "@/lib/supabase/server";
 import { SupabaseStore } from "./supabase-store";
 import { ApiError } from "./types";
 
-const STORE_VERSION = 6;
+const STORE_VERSION = 9;
 
 const globalForBackend = globalThis as typeof globalThis & {
   savestreakStore?: DataStore;
@@ -40,7 +40,10 @@ function storeIsCurrent(store: DataStore | undefined) {
       globalForBackend.savestreakStoreVersion === STORE_VERSION &&
       typeof store.listBankAccounts === "function" &&
       typeof store.listExpenses === "function" &&
-      typeof store.listStatementTransactions === "function",
+      typeof store.listStatementTransactions === "function" &&
+      typeof store.claimPasswordReset === "function" &&
+      typeof store.listGoalChanges === "function" &&
+      typeof store.countConsentResends === "function",
   );
 }
 
@@ -49,21 +52,26 @@ export async function getStore() {
     return globalForBackend.savestreakStore!;
   }
 
+  // A store can be saved under the current version before its class gained
+  // the newest methods. Reusing that promise keeps the stale instance.
   if (
     globalForBackend.savestreakStoreReady &&
-    globalForBackend.savestreakStoreVersion === STORE_VERSION
+    !globalForBackend.savestreakStore
   ) {
     return globalForBackend.savestreakStoreReady;
   }
 
   globalForBackend.savestreakStore = undefined;
   globalForBackend.savestreakStoreVersion = STORE_VERSION;
-  globalForBackend.savestreakStoreReady = createStore().then((store) => {
-    globalForBackend.savestreakStore = store;
-    globalForBackend.savestreakStoreVersion = STORE_VERSION;
+  const pending = createStore().then((store) => {
+    if (globalForBackend.savestreakStoreReady === pending) {
+      globalForBackend.savestreakStore = store;
+      globalForBackend.savestreakStoreVersion = STORE_VERSION;
+    }
     return store;
   });
-  return globalForBackend.savestreakStoreReady;
+  globalForBackend.savestreakStoreReady = pending;
+  return pending;
 }
 
 export async function getServices() {

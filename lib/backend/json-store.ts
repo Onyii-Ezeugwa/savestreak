@@ -17,7 +17,15 @@ import type {
   UserBadgeRecord,
   WeeklySummaryRecord,
 } from "./habit-types";
-import type { ConsentRecord, GoalRecord, UserRecord } from "./types";
+import { consentExpiresAt } from "./consent-rules";
+import type {
+  ConsentRecord,
+  ConsentResendRecord,
+  GoalChangeRecord,
+  GoalRecord,
+  PasswordResetRecord,
+  UserRecord,
+} from "./types";
 
 interface Snapshot {
   users: UserRecord[];
@@ -33,6 +41,9 @@ interface Snapshot {
   lessons: LessonRecord[];
   lessonReads: LessonReadRecord[];
   lessonSaves: LessonSaveRecord[];
+  passwordResets: PasswordResetRecord[];
+  consentResends: ConsentResendRecord[];
+  goalChanges: GoalChangeRecord[];
   userBadges: UserBadgeRecord[];
   weeklySummaries: WeeklySummaryRecord[];
 }
@@ -52,6 +63,9 @@ export class JsonStore implements DataStore {
     lessons: [],
     lessonReads: [],
     lessonSaves: [],
+    passwordResets: [],
+    consentResends: [],
+    goalChanges: [],
     userBadges: [],
     weeklySummaries: [],
   };
@@ -66,12 +80,17 @@ export class JsonStore implements DataStore {
       const parsed = JSON.parse(raw) as Partial<Snapshot>;
       this.snapshot = {
         users: parsed.users ?? [],
-        consents: parsed.consents ?? [],
+        consents: (parsed.consents ?? []).map((consent) => ({
+          ...consent,
+          sentAt: consent.sentAt ?? consent.createdAt,
+          expiresAt: consentExpiresAt(consent.createdAt, consent.expiresAt),
+        })),
         goals: (parsed.goals ?? []).map((goal) => ({
           ...goal,
           linkedAccountId: goal.linkedAccountId ?? null,
           savedPlan: goal.savedPlan ?? null,
           savedPlanAt: goal.savedPlanAt ?? null,
+          planStale: goal.planStale ?? false,
         })),
         bankConnections: (parsed.bankConnections ?? []).map((connection) => ({
           ...connection,
@@ -82,13 +101,21 @@ export class JsonStore implements DataStore {
         })),
         bankAccounts: parsed.bankAccounts ?? [],
         expenses: parsed.expenses ?? [],
-        balanceSnapshots: parsed.balanceSnapshots ?? [],
         streakWeeks: parsed.streakWeeks ?? [],
         savingsStreaks: parsed.savingsStreaks ?? [],
         statementTransactions: parsed.statementTransactions ?? [],
         lessons: parsed.lessons ?? [],
         lessonReads: parsed.lessonReads ?? [],
         lessonSaves: parsed.lessonSaves ?? [],
+        passwordResets: parsed.passwordResets ?? [],
+        consentResends: parsed.consentResends ?? [],
+        goalChanges: parsed.goalChanges ?? [],
+        balanceSnapshots: (parsed.balanceSnapshots ?? []).map((snapshot) => ({
+          ...snapshot,
+          assetsCents: snapshot.assetsCents ?? null,
+          debtsCents: snapshot.debtsCents ?? null,
+          netWorthCents: snapshot.netWorthCents ?? null,
+        })),
         userBadges: parsed.userBadges ?? [],
         weeklySummaries: parsed.weeklySummaries ?? [],
       };
@@ -151,6 +178,28 @@ export class JsonStore implements DataStore {
     );
     await this.persist();
     return consent;
+  }
+
+  async countConsentResends(userId: string, since: string) {
+    return this.snapshot.consentResends.filter(
+      (item) => item.userId === userId && item.sentAt >= since,
+    ).length;
+  }
+
+  async createConsentResend(record: ConsentResendRecord) {
+    this.snapshot.consentResends.push(record);
+    await this.persist();
+  }
+
+  async listGoalChanges(userId: string) {
+    return this.snapshot.goalChanges
+      .filter((item) => item.userId === userId)
+      .sort((a, b) => b.changedAt.localeCompare(a.changedAt));
+  }
+
+  async createGoalChange(change: GoalChangeRecord) {
+    this.snapshot.goalChanges.push(change);
+    await this.persist();
   }
 
   async listGoals(userId: string) {
@@ -363,6 +412,45 @@ export class JsonStore implements DataStore {
       read,
     ];
     await this.persist();
+  }
+
+  async createPasswordReset(reset: PasswordResetRecord) {
+    this.snapshot.passwordResets.push(reset);
+    await this.persist();
+  }
+
+  async invalidateOpenPasswordResets(userId: string) {
+    const usedAt = new Date().toISOString();
+    this.snapshot.passwordResets = this.snapshot.passwordResets.map((item) =>
+      item.userId === userId && !item.usedAt ? { ...item, usedAt } : item,
+    );
+    await this.persist();
+  }
+
+  async claimPasswordReset(tokenHash: string, usedAt: string) {
+    const reset = this.snapshot.passwordResets.find(
+      (item) => item.tokenHash === tokenHash,
+    );
+    if (!reset) {
+      return { status: "missing" as const };
+    }
+    if (reset.usedAt) {
+      return { status: "used" as const };
+    }
+    if (new Date(reset.expiresAt).getTime() <= Date.now()) {
+      return { status: "expired" as const };
+    }
+    reset.usedAt = usedAt;
+    await this.persist();
+    return { status: "ok" as const, reset: { ...reset } };
+  }
+
+  async releasePasswordReset(id: string) {
+    const reset = this.snapshot.passwordResets.find((item) => item.id === id);
+    if (reset) {
+      reset.usedAt = null;
+      await this.persist();
+    }
   }
 
   async listLessonSaves(userId: string) {

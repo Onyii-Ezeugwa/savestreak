@@ -6,6 +6,9 @@ export interface BalanceSnapshotRecord {
   userId: string;
   capturedAt: string;
   savingsCents: number;
+  assetsCents: number | null;
+  debtsCents: number | null;
+  netWorthCents: number | null;
 }
 
 export interface StreakWeekRecord {

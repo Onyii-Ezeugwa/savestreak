@@ -25,6 +25,15 @@ export interface UserRecord {
   createdAt: string;
 }
 
+export interface PasswordResetRecord {
+  id: string;
+  userId: string;
+  tokenHash: string;
+  expiresAt: string;
+  usedAt: string | null;
+  createdAt: string;
+}
+
 export interface ConsentRecord {
   id: string;
   userId: string;
@@ -33,6 +42,27 @@ export interface ConsentRecord {
   decision: ConsentDecision;
   decidedAt: string | null;
   createdAt: string;
+  sentAt: string;
+  expiresAt: string;
+}
+
+export interface ConsentResendRecord {
+  id: string;
+  userId: string;
+  consentId: string;
+  guardianEmail: string;
+  sentAt: string;
+}
+
+export interface GoalChangeRecord {
+  id: string;
+  goalId: string;
+  userId: string;
+  oldTargetAmountCents: number;
+  newTargetAmountCents: number;
+  oldTargetDate: string;
+  newTargetDate: string;
+  changedAt: string;
 }
 
 export interface GoalRecord {
@@ -45,6 +75,7 @@ export interface GoalRecord {
   linkedAccountId: string | null;
   savedPlan: Record<string, unknown> | null;
   savedPlanAt: string | null;
+  planStale: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -73,14 +104,24 @@ export interface PublicGoal {
   linkedAccountId: string | null;
   savedPlan: Record<string, unknown> | null;
   savedPlanAt: string | null;
+  planStale: boolean;
+  changes: Array<{
+    oldTargetAmount: number;
+    newTargetAmount: number;
+    oldTargetDate: string;
+    newTargetDate: string;
+    changedAt: string;
+  }>;
   createdAt: string;
   updatedAt: string;
 }
 
+export type ConsentViewStatus = ConsentDecision | "expired";
+
 export interface PublicConsent {
   studentFirstName: string;
   guardianEmail: string;
-  decision: ConsentDecision;
+  decision: ConsentViewStatus;
   decidedAt: string | null;
 }
 

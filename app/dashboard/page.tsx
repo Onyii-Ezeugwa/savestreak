@@ -11,23 +11,30 @@ import {
   type ApiErrorPayload,
 } from "@/lib/api";
 import { formatDisplayDate } from "@/lib/dates";
+import { requiredSavings } from "@/lib/goal-progress";
 import {
   ArrowLeftRight,
   BookOpen,
   Landmark,
   Loader2,
+  Lock,
+  Plus,
   Receipt,
   ScrollText,
+  Wallet,
+  X,
   type LucideIcon,
 } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useId, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
+import { createPortal } from "react-dom";
 
 const DASHBOARD_LINKS: Array<{ href: string; label: string; icon: LucideIcon }> = [
   { href: "/connect-bank", label: "Connect bank", icon: Landmark },
-  { href: "/expenses", label: "Receipts", icon: Receipt },
+  { href: "/overview", label: "Overview", icon: Wallet },
   { href: "/transactions", label: "Transactions", icon: ArrowLeftRight },
+  { href: "/expenses", label: "Receipts", icon: Receipt },
   { href: "/summaries", label: "Weekly summary", icon: ScrollText },
   { href: "/lessons", label: "Lesson", icon: BookOpen },
 ];
@@ -83,6 +90,8 @@ export default function DashboardPage() {
   const [savingPlanGoalId, setSavingPlanGoalId] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [creatingGoal, setCreatingGoal] = useState(false);
+  const goalDialogTitle = useId();
   const [habitTick, setHabitTick] = useState(0);
   const [habitSnapshot, setHabitSnapshot] = useState<{
     streak: {
@@ -99,6 +108,24 @@ export default function DashboardPage() {
       router.replace("/login");
     }
   }, [loading, user, router]);
+
+  useEffect(() => {
+    if (!creatingGoal) {
+      return;
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setCreatingGoal(false);
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [creatingGoal]);
 
   async function refreshGoals() {
     try {
@@ -229,14 +256,14 @@ export default function DashboardPage() {
 
   if (loading || !user) {
     return (
-      <section className="mx-auto max-w-6xl px-5 py-14 sm:px-6 lg:px-8">
+      <section className="page-enter mx-auto max-w-6xl px-5 py-14 sm:px-6 lg:px-8">
         <p className="text-sm text-muted">Loading your player HUD...</p>
       </section>
     );
   }
 
   return (
-    <section className="mx-auto max-w-6xl px-5 py-14 sm:px-6 lg:px-8">
+    <section className="page-enter mx-auto max-w-6xl px-5 py-14 sm:px-6 lg:px-8">
       <div className="flex items-start justify-between gap-4">
         <div>
           <p className="text-xs font-bold uppercase tracking-[0.16em] text-teal">
@@ -261,18 +288,29 @@ export default function DashboardPage() {
       </div>
       <nav
         aria-label="Dashboard"
-        className="mt-6 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5"
+        className="mt-6 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6"
       >
-        {DASHBOARD_LINKS.map((item) => (
-          <Link
-            key={item.href}
-            href={item.href}
-            className="flex items-center gap-2.5 rounded-2xl border border-line bg-card px-3.5 py-3 text-sm font-semibold leading-tight text-ink transition-colors hover:border-teal/40 hover:bg-teal/5 hover:text-teal"
-          >
-            <item.icon size={16} className="shrink-0 text-teal" aria-hidden="true" />
-            {item.label}
-          </Link>
-        ))}
+        {DASHBOARD_LINKS.map((item) =>
+          user.status === "active" ? (
+            <Link
+              key={item.href}
+              href={item.href}
+              className="flex items-center gap-2.5 rounded-2xl border border-line bg-card px-3.5 py-3 text-sm font-semibold leading-tight text-ink transition duration-200 hover:-translate-y-0.5 hover:border-teal/40 hover:bg-teal/5 hover:text-teal"
+            >
+              <item.icon size={16} className="shrink-0 text-teal" aria-hidden="true" />
+              {item.label}
+            </Link>
+          ) : (
+            <div
+              key={item.href}
+              className="flex items-center gap-2.5 rounded-2xl border border-line bg-cream px-3.5 py-3 text-sm font-semibold leading-tight text-muted"
+              aria-disabled="true"
+            >
+              <Lock size={16} className="shrink-0" aria-hidden="true" />
+              {item.label} locked
+            </div>
+          ),
+        )}
       </nav>
 
       {user.status === "pending_consent" ? (
@@ -284,6 +322,9 @@ export default function DashboardPage() {
             Your account is created, but savings goals stay locked until a
             parent or guardian approves the consent request.
           </p>
+          <Button href="/profile" className="mt-4" size="sm">
+            Open profile
+          </Button>
         </div>
       ) : null}
 
@@ -294,6 +335,9 @@ export default function DashboardPage() {
             A parent or guardian declined consent, so this account cannot
             create or manage savings goals.
           </p>
+          <Button href="/profile" className="mt-4" size="sm" variant="secondary">
+            Open profile
+          </Button>
         </div>
       ) : null}
 
@@ -362,9 +406,75 @@ export default function DashboardPage() {
             </div>
           ) : null}
 
-        <div className="grid gap-6 lg:grid-cols-[1fr_20rem]">
-          <div className="space-y-4">
-            <h2 className="font-display text-2xl text-ink">Your quests</h2>
+        <div className="stagger-in space-y-4">
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="font-display text-2xl text-ink">Your quests</h2>
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => setCreatingGoal(true)}
+              >
+                <span className="inline-flex items-center gap-1.5">
+                  <Plus size={14} aria-hidden="true" />
+                  New goal
+                </span>
+              </Button>
+            </div>
+            {creatingGoal
+              ? createPortal(
+                  <div
+                    className="dialog-overlay fixed inset-0 z-50 flex items-end justify-center bg-ink/40 p-0 backdrop-blur-[2px] sm:items-center sm:p-6"
+                    role="presentation"
+                    onMouseDown={(event) => {
+                      if (event.target === event.currentTarget) {
+                        setCreatingGoal(false);
+                      }
+                    }}
+                  >
+                    <div
+                      role="dialog"
+                      aria-modal="true"
+                      aria-labelledby={goalDialogTitle}
+                      className="dialog-panel game-panel max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-t-3xl p-6 shadow-[0_24px_80px_rgba(35,31,27,0.28)] sm:rounded-3xl"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <h2
+                            id={goalDialogTitle}
+                            className="font-display text-3xl text-ink"
+                          >
+                            New goal
+                          </h2>
+                          <p className="mt-1 text-sm text-muted">
+                            Name it, set a target, and pick a date that has not
+                            passed.
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          className="rounded-full p-2 text-ink hover:bg-cream-dark"
+                          aria-label="Close"
+                          onClick={() => setCreatingGoal(false)}
+                        >
+                          <X size={18} />
+                        </button>
+                      </div>
+                      <div className="mt-4">
+                        <GoalForm
+                          bankAccounts={bankAccounts}
+                          submitLabel="Create goal"
+                          onCancel={() => setCreatingGoal(false)}
+                          onSaved={async () => {
+                            setCreatingGoal(false);
+                            await refreshGoals();
+                          }}
+                        />
+                      </div>
+                    </div>
+                  </div>,
+                  document.body,
+                )
+              : null}
             {loadError ? (
               <p className="text-sm text-orange">{loadError}</p>
             ) : null}
@@ -414,6 +524,25 @@ export default function DashboardPage() {
                         {goal.progress}%
                       </span>
                     </div>
+                    {goal.planStale && goal.savedPlan ? (
+                      <p className="mt-3 text-sm text-orange">
+                        This savings plan is out of date because the target
+                        changed. Regenerate it when you are ready.
+                      </p>
+                    ) : null}
+                    {goal.changes?.length ? (
+                      <ul className="mt-3 space-y-1 text-xs text-muted">
+                        {goal.changes.slice(0, 3).map((change) => (
+                          <li key={change.changedAt}>
+                            {formatDisplayDate(change.changedAt.slice(0, 10))}: target{" "}
+                            {MONEY.format(change.oldTargetAmount)} by{" "}
+                            {formatDisplayDate(change.oldTargetDate)} became{" "}
+                            {MONEY.format(change.newTargetAmount)} by{" "}
+                            {formatDisplayDate(change.newTargetDate)}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
                     <div className="mt-4 h-3 overflow-hidden rounded-sm border border-teal/20 bg-cream-dark">
                       <div
                         className={`h-full transition-[width] duration-500 ${
@@ -609,26 +738,44 @@ export default function DashboardPage() {
                 )}
               </article>
             ))}
-          </div>
-          <aside className="game-panel h-fit rounded-3xl p-5">
-            <h2 className="font-display text-2xl text-ink">New goal</h2>
-            <p className="mt-1 text-sm text-muted">
-              Name it, set a target, and pick a date that has not passed.
-            </p>
-            <div className="mt-4">
-              <GoalForm
-                bankAccounts={bankAccounts}
-                submitLabel="Create goal"
-                onSaved={async () => {
-                  await refreshGoals();
-                }}
-              />
-            </div>
-          </aside>
         </div>
         </div>
       ) : null}
     </section>
+  );
+}
+
+function SavingsPreview({
+  targetAmount,
+  currentAmount,
+  targetDate,
+}: {
+  targetAmount: string;
+  currentAmount: string;
+  targetDate: string;
+}) {
+  const target = Number(targetAmount);
+  const saved = Number(currentAmount || 0);
+  if (!Number.isFinite(target) || target <= 0 || !targetDate) {
+    return null;
+  }
+  const pace = requiredSavings({
+    currentAmountCents: Math.round(Math.max(0, saved) * 100),
+    targetAmountCents: Math.round(target * 100),
+    targetDate,
+  });
+  if (!pace) {
+    return null;
+  }
+  const money = new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+  });
+  return (
+    <p className="rounded-2xl border border-line bg-cream px-4 py-3 text-sm leading-6 text-ink">
+      About {money.format(pace.weeklyCents / 100)} a week, or{" "}
+      {money.format(pace.monthlyCents / 100)} a month, to reach the new target.
+    </p>
   );
 }
 
@@ -787,6 +934,18 @@ function GoalForm({
           <p className="mt-2 text-sm text-orange">{fieldErrors.targetDate}</p>
         ) : null}
       </div>
+      <SavingsPreview
+        targetAmount={targetAmount}
+        currentAmount={
+          linkedAccountId
+            ? String(
+                linkableAccounts.find((account) => account.id === linkedAccountId)
+                  ?.balance ?? currentAmount,
+              )
+            : currentAmount
+        }
+        targetDate={targetDate}
+      />
       {error ? <p className="text-sm text-orange">{error}</p> : null}
       <div className="flex gap-2">
         <Button type="submit" disabled={submitting}>

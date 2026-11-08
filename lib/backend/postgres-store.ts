@@ -31,7 +31,10 @@ import type {
 import {
   ApiError,
   type ConsentRecord,
+  type ConsentResendRecord,
+  type GoalChangeRecord,
   type GoalRecord,
+  type PasswordResetRecord,
   type UserRecord,
 } from "./types";
 
@@ -185,8 +188,8 @@ export class PostgresStore implements DataStore {
   async createConsent(consent: ConsentRecord) {
     await this.pool.query(
       `INSERT INTO consents
-        (id, user_id, guardian_email, token, decision, decided_at, created_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+        (id, user_id, guardian_email, token, decision, decided_at, created_at, sent_at, expires_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
       [
         consent.id,
         consent.userId,
@@ -195,6 +198,8 @@ export class PostgresStore implements DataStore {
         consent.decision,
         consent.decidedAt,
         consent.createdAt,
+        consent.sentAt,
+        consent.expiresAt,
       ],
     );
     return consent;
@@ -218,8 +223,19 @@ export class PostgresStore implements DataStore {
 
   async updateConsent(consent: ConsentRecord) {
     await this.pool.query(
-      `UPDATE consents SET decision = $2, decided_at = $3 WHERE id = $1`,
-      [consent.id, consent.decision, consent.decidedAt],
+      `UPDATE consents SET
+        guardian_email = $2, token = $3, decision = $4, decided_at = $5,
+        sent_at = $6, expires_at = $7
+       WHERE id = $1`,
+      [
+        consent.id,
+        consent.guardianEmail,
+        consent.token,
+        consent.decision,
+        consent.decidedAt,
+        consent.sentAt,
+        consent.expiresAt,
+      ],
     );
     return consent;
   }
@@ -243,8 +259,8 @@ export class PostgresStore implements DataStore {
   async createGoal(goal: GoalRecord) {
     await this.pool.query(
       `INSERT INTO goals
-        (id, user_id, name, target_amount_cents, current_amount_cents, target_date, linked_account_id, saved_plan, saved_plan_at, created_at, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+        (id, user_id, name, target_amount_cents, current_amount_cents, target_date, linked_account_id, saved_plan, saved_plan_at, plan_stale, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
       [
         goal.id,
         goal.userId,
@@ -255,6 +271,7 @@ export class PostgresStore implements DataStore {
         goal.linkedAccountId,
         goal.savedPlan ? JSON.stringify(goal.savedPlan) : null,
         goal.savedPlanAt,
+        goal.planStale,
         goal.createdAt,
         goal.updatedAt,
       ],
@@ -267,7 +284,7 @@ export class PostgresStore implements DataStore {
       `UPDATE goals SET
         name = $2, target_amount_cents = $3, current_amount_cents = $4,
         target_date = $5, linked_account_id = $6, saved_plan = $7,
-        saved_plan_at = $8, updated_at = $9
+        saved_plan_at = $8, plan_stale = $9, updated_at = $10
        WHERE id = $1`,
       [
         goal.id,
@@ -278,6 +295,7 @@ export class PostgresStore implements DataStore {
         goal.linkedAccountId,
         goal.savedPlan ? JSON.stringify(goal.savedPlan) : null,
         goal.savedPlanAt,
+        goal.planStale,
         goal.updatedAt,
       ],
     );
@@ -473,9 +491,18 @@ export class PostgresStore implements DataStore {
 
   async addBalanceSnapshot(snapshot: BalanceSnapshotRecord) {
     await this.pool.query(
-      `INSERT INTO balance_snapshots (id, user_id, captured_at, savings_cents)
-       VALUES ($1,$2,$3,$4)`,
-      [snapshot.id, snapshot.userId, snapshot.capturedAt, snapshot.savingsCents],
+      `INSERT INTO balance_snapshots
+        (id, user_id, captured_at, savings_cents, assets_cents, debts_cents, net_worth_cents)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+      [
+        snapshot.id,
+        snapshot.userId,
+        snapshot.capturedAt,
+        snapshot.savingsCents,
+        snapshot.assetsCents,
+        snapshot.debtsCents,
+        snapshot.netWorthCents,
+      ],
     );
     return snapshot;
   }
@@ -695,6 +722,130 @@ export class PostgresStore implements DataStore {
     );
     return summary;
   }
+
+  async createPasswordReset(reset: PasswordResetRecord) {
+    await this.pool.query(
+      `INSERT INTO password_resets
+        (id, user_id, token_hash, expires_at, used_at, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6)`,
+      [
+        reset.id,
+        reset.userId,
+        reset.tokenHash,
+        reset.expiresAt,
+        reset.usedAt,
+        reset.createdAt,
+      ],
+    );
+  }
+
+  async invalidateOpenPasswordResets(userId: string) {
+    await this.pool.query(
+      `UPDATE password_resets SET used_at = now()
+       WHERE user_id = $1 AND used_at IS NULL`,
+      [userId],
+    );
+  }
+
+  async claimPasswordReset(tokenHash: string, usedAt: string) {
+    const claimed = await this.pool.query(
+      `UPDATE password_resets
+       SET used_at = $2
+       WHERE token_hash = $1 AND used_at IS NULL AND expires_at > now()
+       RETURNING *`,
+      [tokenHash, usedAt],
+    );
+    if (claimed.rows[0]) {
+      return { status: "ok" as const, reset: mapPasswordReset(claimed.rows[0]) };
+    }
+    const existing = await this.pool.query(
+      `SELECT * FROM password_resets WHERE token_hash = $1`,
+      [tokenHash],
+    );
+    const row = existing.rows[0];
+    if (!row) {
+      return { status: "missing" as const };
+    }
+    if (row.used_at) {
+      return { status: "used" as const };
+    }
+    return { status: "expired" as const };
+  }
+
+  async releasePasswordReset(id: string) {
+    await this.pool.query(
+      `UPDATE password_resets SET used_at = NULL WHERE id = $1`,
+      [id],
+    );
+  }
+
+  async countConsentResends(userId: string, since: string) {
+    const result = await this.pool.query(
+      `SELECT count(*)::int AS total FROM consent_resends
+       WHERE user_id = $1 AND sent_at >= $2`,
+      [userId, since],
+    );
+    return Number(result.rows[0]?.total ?? 0);
+  }
+
+  async createConsentResend(record: ConsentResendRecord) {
+    await this.pool.query(
+      `INSERT INTO consent_resends (id, user_id, consent_id, guardian_email, sent_at)
+       VALUES ($1,$2,$3,$4,$5)`,
+      [record.id, record.userId, record.consentId, record.guardianEmail, record.sentAt],
+    );
+  }
+
+  async listGoalChanges(userId: string) {
+    const result = await this.pool.query(
+      `SELECT * FROM goal_changes WHERE user_id = $1 ORDER BY changed_at DESC`,
+      [userId],
+    );
+    return result.rows.map(mapGoalChange);
+  }
+
+  async createGoalChange(change: GoalChangeRecord) {
+    await this.pool.query(
+      `INSERT INTO goal_changes
+        (id, goal_id, user_id, old_target_amount_cents, new_target_amount_cents,
+         old_target_date, new_target_date, changed_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+      [
+        change.id,
+        change.goalId,
+        change.userId,
+        change.oldTargetAmountCents,
+        change.newTargetAmountCents,
+        change.oldTargetDate,
+        change.newTargetDate,
+        change.changedAt,
+      ],
+    );
+  }
+}
+
+function mapPasswordReset(row: Record<string, unknown>): PasswordResetRecord {
+  return {
+    id: String(row.id),
+    userId: String(row.user_id),
+    tokenHash: String(row.token_hash),
+    expiresAt: asIso(row.expires_at as Date | string) ?? new Date().toISOString(),
+    usedAt: asIso((row.used_at as Date | string | null) ?? null),
+    createdAt: asIso(row.created_at as Date | string) ?? new Date().toISOString(),
+  };
+}
+
+function mapGoalChange(row: Record<string, unknown>): GoalChangeRecord {
+  return {
+    id: String(row.id),
+    goalId: String(row.goal_id),
+    userId: String(row.user_id),
+    oldTargetAmountCents: Number(row.old_target_amount_cents),
+    newTargetAmountCents: Number(row.new_target_amount_cents),
+    oldTargetDate: asDate(row.old_target_date as Date | string),
+    newTargetDate: asDate(row.new_target_date as Date | string),
+    changedAt: asIso(row.changed_at as Date | string) ?? new Date().toISOString(),
+  };
 }
 
 function mapUser(row: Record<string, unknown>): UserRecord {
@@ -731,6 +882,15 @@ function mapConsent(row: Record<string, unknown>): ConsentRecord {
     decision: row.decision as ConsentRecord["decision"],
     decidedAt: asIso((row.decided_at as Date | string | null) ?? null),
     createdAt: asIso(row.created_at as Date | string) ?? new Date().toISOString(),
+    sentAt:
+      asIso((row.sent_at as Date | string | null) ?? null) ??
+      asIso(row.created_at as Date | string) ??
+      new Date().toISOString(),
+    expiresAt:
+      asIso((row.expires_at as Date | string | null) ?? null) ??
+      new Date(
+        new Date(String(row.created_at)).getTime() + 7 * 24 * 60 * 60 * 1000,
+      ).toISOString(),
   };
 }
 
@@ -750,6 +910,7 @@ function mapGoal(row: Record<string, unknown>): GoalRecord {
         ? (row.saved_plan as Record<string, unknown>)
         : null,
     savedPlanAt: asIso((row.saved_plan_at as Date | string | null) ?? null),
+    planStale: Boolean(row.plan_stale),
     createdAt: asIso(row.created_at as Date | string) ?? new Date().toISOString(),
     updatedAt: asIso(row.updated_at as Date | string) ?? new Date().toISOString(),
   };

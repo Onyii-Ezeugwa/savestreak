@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { evaluateBadges } from "./badge-service";
 import { requireActiveAccount } from "./goals-service";
+import { accountPosition } from "./account-position";
 import { recordSavingsSnapshot } from "./streak-service";
 import type { DataStore } from "./store";
 import { buildSandboxAccounts, jitterBalanceCents } from "./sandbox-bank";
@@ -379,10 +380,13 @@ export class BankService {
 
     const allAccounts = await this.store.listBankAccounts(user.id);
     if (refreshed.length > 0) {
-      const savingsCents = allAccounts
-        .filter((account) => account.accountType === "savings")
-        .reduce((sum, account) => sum + Math.max(0, account.balanceCents), 0);
-      await recordSavingsSnapshot(this.store, user.id, savingsCents);
+      const position = accountPosition(allAccounts);
+      await recordSavingsSnapshot(this.store, user.id, {
+        savingsCents: position.savingsCents,
+        assetsCents: position.assetsCents,
+        debtsCents: position.debtsCents,
+        netWorthCents: position.netWorthCents,
+      });
       await evaluateBadges(this.store, user.id);
     }
     return {

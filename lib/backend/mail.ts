@@ -1,5 +1,6 @@
 import { Resend } from "resend";
 import { ConsentRequestEmail } from "@/emails/consent-request";
+import { PasswordResetEmail } from "@/emails/password-reset";
 import { appUrl } from "./types";
 
 const DEFAULT_FROM = '"$aveStreak" <hello@mail.savestreak.org>';
@@ -20,6 +21,7 @@ export async function sendConsentEmail(input: {
   guardianEmail: string;
   studentFirstName: string;
   consentUrl: string;
+  idempotencyKey?: string;
 }) {
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) {
@@ -42,7 +44,10 @@ export async function sendConsentEmail(input: {
           appUrl: appUrl(),
         }),
       },
-      { idempotencyKey: `consent-email/v2/${input.consentId}` },
+      {
+        idempotencyKey:
+          input.idempotencyKey ?? `consent-email/v2/${input.consentId}`,
+      },
     );
 
     if (error) {
@@ -53,6 +58,42 @@ export async function sendConsentEmail(input: {
   } catch (error) {
     console.error(
       "[consent] Failed to send email:",
+      error instanceof Error ? error.message : "Unknown error",
+    );
+    return false;
+  }
+}
+
+export async function sendPasswordResetEmail(input: {
+  resetId: string;
+  email: string;
+  resetUrl: string;
+}) {
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) {
+    console.warn("[password-reset] RESEND_API_KEY is missing. Skipped email send.");
+    return false;
+  }
+
+  const resend = new Resend(apiKey);
+  try {
+    const { error } = await resend.emails.send(
+      {
+        from: consentFromAddress(),
+        to: [input.email],
+        subject: "Reset your $aveStreak password",
+        react: PasswordResetEmail({ resetUrl: input.resetUrl }),
+      },
+      { idempotencyKey: `password-reset/v1/${input.resetId}` },
+    );
+    if (error) {
+      console.error("[password-reset] Failed to send email:", error.message);
+      return false;
+    }
+    return true;
+  } catch (error) {
+    console.error(
+      "[password-reset] Failed to send email:",
       error instanceof Error ? error.message : "Unknown error",
     );
     return false;

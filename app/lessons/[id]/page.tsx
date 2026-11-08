@@ -3,6 +3,8 @@
 import { useAuth } from "@/components/AuthProvider";
 import { LessonArticle } from "@/components/LessonArticle";
 import { SaveLessonButton } from "@/components/SaveLessonButton";
+import { BackLink } from "@/components/BackLink";
+import { PageFooterNav } from "@/components/PageFooterNav";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -67,13 +69,11 @@ export default function LessonPage() {
   }, [user, params.id]);
 
   return (
-    <section className="mx-auto max-w-5xl px-5 py-14 sm:px-6">
-      <div className="flex flex-wrap gap-4">
+    <section className="page-enter mx-auto max-w-5xl px-5 py-14 sm:px-6">
+      <div className="flex items-center gap-4">
+        <BackLink />
         <Link href="/lessons" className="text-sm font-medium text-teal hover:underline">
           All lessons
-        </Link>
-        <Link href="/dashboard" className="text-sm font-medium text-teal hover:underline">
-          Back to dashboard
         </Link>
       </div>
       {error ? <p className="mt-6 text-sm text-orange">{error}</p> : null}
@@ -93,6 +93,7 @@ export default function LessonPage() {
           />
         </div>
       ) : null}
+      <PageFooterNav />
     </section>
   );
 }
