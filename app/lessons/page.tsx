@@ -2,6 +2,7 @@
 
 import { useAuth } from "@/components/AuthProvider";
 import { LessonArticle } from "@/components/LessonArticle";
+import { LessonQuiz } from "@/components/LessonQuiz";
 import { SaveLessonButton } from "@/components/SaveLessonButton";
 import { BackLink } from "@/components/BackLink";
 import { PageFooterNav } from "@/components/PageFooterNav";
@@ -161,6 +162,7 @@ export default function LessonsPage() {
               />
             }
           />
+          <LessonQuiz lessonId={lesson.id} />
         </div>
       ) : null}
 

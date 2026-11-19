@@ -24,19 +24,69 @@ function chance(percent: number) {
   return randInt(1, 100) <= percent;
 }
 
+function sameLocalDay(iso: string, now: Date) {
+  const then = new Date(iso);
+  if (Number.isNaN(then.getTime())) {
+    return false;
+  }
+  return (
+    then.getFullYear() === now.getFullYear() &&
+    then.getMonth() === now.getMonth() &&
+    then.getDate() === now.getDate()
+  );
+}
+
 /**
- * Nudge an existing balance on refresh so amounts move like live data
- * without wiping the account set.
+ * Posted balance for a refresh. The same calendar day keeps the last
+ * reading. A new day moves each account the way a normal one would:
+ * checking by everyday spending, savings mostly still, investments by a
+ * fraction of a percent, a card by small charges or a payment, and a
+ * loan by little or no interest.
  */
-export function jitterBalanceCents(balanceCents: number) {
-  const sign = balanceCents < 0 ? -1 : 1;
-  const absolute = Math.abs(balanceCents);
-  // Move by about 0.5% to 6%, plus a small cent-level wobble.
-  const basisPoints = randInt(5, 60);
-  const delta = Math.round((absolute * basisPoints) / 10000) + randInt(0, 175);
-  const direction = chance(50) ? 1 : -1;
-  const next = Math.max(0, absolute + direction * delta);
-  return sign * next;
+export function nextPostedBalanceCents(input: {
+  accountType: BankAccountType;
+  balanceCents: number;
+  lastUpdatedAt: string;
+  now?: Date;
+}) {
+  const now = input.now ?? new Date();
+  if (sameLocalDay(input.lastUpdatedAt, now)) {
+    return input.balanceCents;
+  }
+  return driftForNewDay(input.accountType, input.balanceCents);
+}
+
+function driftForNewDay(accountType: BankAccountType, balanceCents: number) {
+  if (accountType === "checking") {
+    const delta = randInt(-4200, 1600);
+    const floor = balanceCents > 2500 ? 2000 : 0;
+    return Math.max(floor, balanceCents + delta);
+  }
+  if (accountType === "savings") {
+    if (!chance(25)) {
+      return balanceCents;
+    }
+    return balanceCents + randInt(15, 350);
+  }
+  if (accountType === "investment") {
+    const basisPoints = randInt(-35, 45);
+    return Math.max(0, balanceCents + Math.round((balanceCents * basisPoints) / 10000));
+  }
+  const owed = Math.abs(balanceCents);
+  if (accountType === "loan") {
+    if (!chance(15)) {
+      return -owed;
+    }
+    return -(owed + randInt(50, 800));
+  }
+  if (accountType === "credit") {
+    if (chance(30)) {
+      const payment = Math.min(owed, randInt(1500, 7500));
+      return -(owed - payment);
+    }
+    return -(owed + randInt(400, 2800));
+  }
+  return balanceCents;
 }
 
 export function buildSandboxAccounts(

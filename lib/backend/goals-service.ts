@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
-import type { GoalChangeRecord } from "./types";
 import { parseDateOnly } from "./auth-service";
 import type { DataStore } from "./store";
+import { buildCatchUpDrafts } from "@/lib/goal-catchup";
+import { recentSpending, wordCatchUp } from "./catchup-service";
 import {
   goalIsComplete,
   goalPaceStatus,
@@ -10,7 +11,9 @@ import {
 } from "@/lib/goal-progress";
 import {
   ApiError,
+  type GoalChangeRecord,
   type GoalRecord,
+  type GoalSuggestionRecord,
   type PublicGoal,
   type UserRecord,
 } from "./types";
@@ -130,6 +133,7 @@ export class GoalsService {
         newTargetAmount: change.newTargetAmountCents / 100,
         oldTargetDate: change.oldTargetDate,
         newTargetDate: change.newTargetDate,
+        note: change.note ?? null,
         changedAt: change.changedAt,
       })),
     }));
@@ -247,6 +251,7 @@ export class GoalsService {
         newTargetAmountCents: nextTargetAmount,
         oldTargetDate: existing.targetDate,
         newTargetDate: nextTargetDate,
+        note: null,
         changedAt: now,
       });
     }
@@ -255,6 +260,196 @@ export class GoalsService {
       updated,
       linkedAccountId ? currentAmountCents : null,
     );
+  }
+
+  async suggestions(user: UserRecord, id: string, refresh = false) {
+    requireActiveAccount(user);
+    const key = `${user.id}:${id}`;
+    const locks = suggestionLocks();
+    const pending = locks.get(key);
+    if (pending) {
+      await pending;
+      return this.readSuggestions(user, id, false);
+    }
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    locks.set(key, gate);
+    try {
+      return await this.readSuggestions(user, id, refresh);
+    } finally {
+      locks.delete(key);
+      release();
+    }
+  }
+
+  private async readSuggestions(user: UserRecord, id: string, refresh: boolean) {
+    const loaded = await this.loadGoal(user, id);
+    if (loaded.pace !== "behind") {
+      return { pace: loaded.pace, suggestions: [], accepted: null, spending: null, source: null };
+    }
+    const basis = `${loaded.goal.targetAmountCents}|${loaded.goal.targetDate}`;
+    return this.loadSuggestions(user, id, loaded, basis, refresh);
+  }
+
+  private async loadSuggestions(
+    user: UserRecord,
+    id: string,
+    loaded: { goal: GoalRecord; savedCents: number; pace: PublicGoal["pace"] },
+    basis: string,
+    refresh: boolean,
+  ) {
+    const existing = await this.store.listGoalSuggestions(user.id, id);
+    const open = existing.filter((item) => item.status === "open");
+    const spending = await recentSpending(this.store, user.id);
+    if (!refresh && open.length > 0) {
+      const ranked = [...open].sort(
+        (a, b) => b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id),
+      );
+      const batch: GoalSuggestionRecord[] = [];
+      for (const item of ranked) {
+        if (batch.some((kept) => kept.kind === item.kind)) {
+          continue;
+        }
+        batch.push(item);
+        if (batch.length === 3) {
+          break;
+        }
+      }
+      await Promise.all(
+        open
+          .filter((item) => !batch.some((kept) => kept.id === item.id))
+          .map((item) =>
+            this.store.setGoalSuggestionStatus(item.id, user.id, "dismissed"),
+          ),
+      );
+      return {
+        pace: loaded.pace,
+        suggestions: batch.map(toPublicSuggestion),
+        accepted: null,
+        spending: toPublicSpending(spending),
+        source: null,
+      };
+    }
+    const same = existing.filter((item) => item.basis === basis);
+    if (!refresh && same.length > 0) {
+      const accepted = same.find((item) => item.status === "accepted") ?? null;
+      return {
+        pace: loaded.pace,
+        suggestions: [],
+        accepted: accepted ? toPublicSuggestion(accepted) : null,
+        spending: toPublicSpending(spending),
+        source: null,
+      };
+    }
+
+    await this.store.closeOpenGoalSuggestions(id, user.id);
+    const drafts = buildCatchUpDrafts({
+      currentAmountCents: loaded.savedCents,
+      targetAmountCents: loaded.goal.targetAmountCents,
+      targetDate: loaded.goal.targetDate,
+      createdAt: loaded.goal.createdAt,
+    }).slice(0, 3);
+    const worded = await wordCatchUp(loaded.goal.name, drafts, spending);
+    const createdAt = new Date().toISOString();
+    const rows: GoalSuggestionRecord[] = worded.drafts.slice(0, 3).map((draft) => ({
+      id: randomUUID(),
+      userId: user.id,
+      goalId: id,
+      kind: draft.kind,
+      title: draft.title,
+      detail: draft.detail,
+      effect: draft.effect,
+      weeklyCents: draft.weeklyCents,
+      targetAmountCents: draft.targetAmountCents,
+      targetDate: draft.targetDate,
+      status: "open",
+      basis,
+      createdAt,
+    }));
+    if (rows.length > 0) {
+      await this.store.saveGoalSuggestions(rows);
+    }
+    return {
+      pace: loaded.pace,
+      suggestions: rows.map(toPublicSuggestion),
+      accepted: null,
+      spending: toPublicSpending(spending),
+      source: worded.source,
+    };
+  }
+
+  async acceptSuggestion(user: UserRecord, goalId: string, suggestionId: string) {
+    requireActiveAccount(user);
+    const suggestion = await this.requireOpenSuggestion(user.id, goalId, suggestionId);
+    const changesGoal =
+      suggestion.targetAmountCents != null || suggestion.targetDate != null;
+    if (changesGoal) {
+      await this.update(user, goalId, {
+        targetAmount:
+          suggestion.targetAmountCents != null
+            ? suggestion.targetAmountCents / 100
+            : undefined,
+        targetDate: suggestion.targetDate ?? undefined,
+      });
+    } else {
+      const goal = await this.store.getGoal(goalId, user.id);
+      if (!goal) {
+        throw new ApiError(404, "That goal was not found.");
+      }
+      await this.store.createGoalChange({
+        id: randomUUID(),
+        goalId,
+        userId: user.id,
+        oldTargetAmountCents: goal.targetAmountCents,
+        newTargetAmountCents: goal.targetAmountCents,
+        oldTargetDate: goal.targetDate,
+        newTargetDate: goal.targetDate,
+        note: suggestion.effect,
+        changedAt: new Date().toISOString(),
+      });
+    }
+    await this.store.setGoalSuggestionStatus(suggestion.id, user.id, "accepted");
+    await this.store.closeOpenGoalSuggestions(goalId, user.id);
+    return { accepted: true };
+  }
+
+  async dismissSuggestion(user: UserRecord, goalId: string, suggestionId: string) {
+    requireActiveAccount(user);
+    const suggestion = await this.requireOpenSuggestion(user.id, goalId, suggestionId);
+    await this.store.setGoalSuggestionStatus(suggestion.id, user.id, "dismissed");
+    return { dismissed: true };
+  }
+
+  private async requireOpenSuggestion(userId: string, goalId: string, suggestionId: string) {
+    const rows = await this.store.listGoalSuggestions(userId, goalId);
+    const suggestion = rows.find((item) => item.id === suggestionId);
+    if (!suggestion || suggestion.status !== "open") {
+      throw new ApiError(404, "That suggestion is no longer available.");
+    }
+    return suggestion;
+  }
+
+  private async loadGoal(user: UserRecord, id: string) {
+    const goal = await this.store.getGoal(id, user.id);
+    if (!goal) {
+      throw new ApiError(404, "That goal was not found.");
+    }
+    let savedCents = goal.currentAmountCents;
+    if (goal.linkedAccountId) {
+      const account = await this.store.getBankAccount(goal.linkedAccountId, user.id);
+      if (account) {
+        savedCents = Math.max(0, account.balanceCents);
+      }
+    }
+    const pace = goalPaceStatus({
+      currentAmountCents: savedCents,
+      targetAmountCents: goal.targetAmountCents,
+      targetDate: goal.targetDate,
+      createdAt: goal.createdAt,
+    });
+    return { goal, savedCents, pace };
   }
 
   async remove(user: UserRecord, id: string) {
@@ -406,4 +601,27 @@ export class GoalsService {
       targetDate,
     };
   }
+}
+
+function suggestionLocks() {
+  const bag = globalThis as { savestreakSuggestionLocks?: Map<string, Promise<void>> };
+  bag.savestreakSuggestionLocks ??= new Map();
+  return bag.savestreakSuggestionLocks;
+}
+
+function toPublicSuggestion(suggestion: GoalSuggestionRecord) {
+  return {
+    id: suggestion.id,
+    kind: suggestion.kind,
+    title: suggestion.title,
+    detail: suggestion.detail,
+    effect: suggestion.effect,
+  };
+}
+
+function toPublicSpending(spending: { totalCents: number; topLabel: string | null }) {
+  return {
+    total: spending.totalCents / 100,
+    topLabel: spending.topLabel,
+  };
 }

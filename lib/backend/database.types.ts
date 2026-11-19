@@ -491,6 +491,7 @@ export type Database = {
           new_target_amount_cents: number;
           old_target_date: string;
           new_target_date: string;
+          note: string | null;
           changed_at: string;
         };
         Insert: {
@@ -501,6 +502,7 @@ export type Database = {
           new_target_amount_cents: number;
           old_target_date: string;
           new_target_date: string;
+          note?: string | null;
           changed_at?: string;
         };
         Update: {
@@ -511,7 +513,179 @@ export type Database = {
           new_target_amount_cents?: number;
           old_target_date?: string;
           new_target_date?: string;
+          note?: string | null;
           changed_at?: string;
+        };
+        Relationships: [];
+      };
+      goal_suggestions: {
+        Row: {
+          id: string;
+          user_id: string;
+          goal_id: string;
+          kind: string;
+          title: string;
+          detail: string;
+          effect: string;
+          weekly_cents: number;
+          target_amount_cents: number | null;
+          target_date: string | null;
+          status: string;
+          basis: string;
+          created_at: string;
+        };
+        Insert: {
+          id: string;
+          user_id: string;
+          goal_id: string;
+          kind: string;
+          title: string;
+          detail: string;
+          effect: string;
+          weekly_cents: number;
+          target_amount_cents?: number | null;
+          target_date?: string | null;
+          status?: string;
+          basis: string;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          goal_id?: string;
+          kind?: string;
+          title?: string;
+          detail?: string;
+          effect?: string;
+          weekly_cents?: number;
+          target_amount_cents?: number | null;
+          target_date?: string | null;
+          status?: string;
+          basis?: string;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      challenge_participations: {
+        Row: {
+          id: string;
+          user_id: string;
+          week_start: string;
+          challenge_id: string;
+          joined_at: string;
+          status: string;
+          progress_cents: number;
+          measured: boolean;
+          closed_at: string | null;
+        };
+        Insert: {
+          id: string;
+          user_id: string;
+          week_start: string;
+          challenge_id: string;
+          joined_at?: string;
+          status?: string;
+          progress_cents?: number;
+          measured?: boolean;
+          closed_at?: string | null;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          week_start?: string;
+          challenge_id?: string;
+          joined_at?: string;
+          status?: string;
+          progress_cents?: number;
+          measured?: boolean;
+          closed_at?: string | null;
+        };
+        Relationships: [];
+      };
+      lesson_quizzes: {
+        Row: {
+          id: string;
+          lesson_id: string;
+          topics: string[];
+          pass_percent: number;
+        };
+        Insert: {
+          id: string;
+          lesson_id: string;
+          topics?: string[];
+          pass_percent?: number;
+        };
+        Update: {
+          id?: string;
+          lesson_id?: string;
+          topics?: string[];
+          pass_percent?: number;
+        };
+        Relationships: [];
+      };
+      lesson_quiz_questions: {
+        Row: {
+          id: string;
+          quiz_id: string;
+          position: number;
+          prompt: string;
+          choices: Json;
+          correct_index: number;
+          explanation: string;
+        };
+        Insert: {
+          id: string;
+          quiz_id: string;
+          position: number;
+          prompt: string;
+          choices: Json;
+          correct_index: number;
+          explanation: string;
+        };
+        Update: {
+          id?: string;
+          quiz_id?: string;
+          position?: number;
+          prompt?: string;
+          choices?: Json;
+          correct_index?: number;
+          explanation?: string;
+        };
+        Relationships: [];
+      };
+      lesson_quiz_attempts: {
+        Row: {
+          id: string;
+          user_id: string;
+          lesson_id: string;
+          quiz_id: string;
+          score: number;
+          total: number;
+          passed: boolean;
+          answers: Json;
+          created_at: string;
+        };
+        Insert: {
+          id: string;
+          user_id: string;
+          lesson_id: string;
+          quiz_id: string;
+          score: number;
+          total: number;
+          passed: boolean;
+          answers: Json;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          lesson_id?: string;
+          quiz_id?: string;
+          score?: number;
+          total?: number;
+          passed?: boolean;
+          answers?: Json;
+          created_at?: string;
         };
         Relationships: [];
       };

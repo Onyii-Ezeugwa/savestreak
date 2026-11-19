@@ -8,6 +8,9 @@ import type {
 import type { ExpenseRecord } from "./expense-types";
 import type {
   BalanceSnapshotRecord,
+  ChallengeParticipationRecord,
+  LessonQuizAttemptRecord,
+  LessonQuizRecord,
   LessonReadRecord,
   LessonRecord,
   LessonSaveRecord,
@@ -23,6 +26,7 @@ import type {
   ConsentResendRecord,
   GoalChangeRecord,
   GoalRecord,
+  GoalSuggestionRecord,
   PasswordResetRecord,
   UserRecord,
 } from "./types";
@@ -44,8 +48,12 @@ interface Snapshot {
   passwordResets: PasswordResetRecord[];
   consentResends: ConsentResendRecord[];
   goalChanges: GoalChangeRecord[];
+  goalSuggestions: GoalSuggestionRecord[];
   userBadges: UserBadgeRecord[];
   weeklySummaries: WeeklySummaryRecord[];
+  challengeParticipations: ChallengeParticipationRecord[];
+  lessonQuizzes: LessonQuizRecord[];
+  lessonQuizAttempts: LessonQuizAttemptRecord[];
 }
 
 export class JsonStore implements DataStore {
@@ -66,8 +74,12 @@ export class JsonStore implements DataStore {
     passwordResets: [],
     consentResends: [],
     goalChanges: [],
+    goalSuggestions: [],
     userBadges: [],
     weeklySummaries: [],
+    challengeParticipations: [],
+    lessonQuizzes: [],
+    lessonQuizAttempts: [],
   };
   private writeQueue: Promise<void> = Promise.resolve();
 
@@ -110,6 +122,7 @@ export class JsonStore implements DataStore {
         passwordResets: parsed.passwordResets ?? [],
         consentResends: parsed.consentResends ?? [],
         goalChanges: parsed.goalChanges ?? [],
+        goalSuggestions: parsed.goalSuggestions ?? [],
         balanceSnapshots: (parsed.balanceSnapshots ?? []).map((snapshot) => ({
           ...snapshot,
           assetsCents: snapshot.assetsCents ?? null,
@@ -118,6 +131,9 @@ export class JsonStore implements DataStore {
         })),
         userBadges: parsed.userBadges ?? [],
         weeklySummaries: parsed.weeklySummaries ?? [],
+        challengeParticipations: parsed.challengeParticipations ?? [],
+        lessonQuizzes: parsed.lessonQuizzes ?? [],
+        lessonQuizAttempts: parsed.lessonQuizAttempts ?? [],
       };
     } catch {
       await this.persist();
@@ -200,6 +216,63 @@ export class JsonStore implements DataStore {
   async createGoalChange(change: GoalChangeRecord) {
     this.snapshot.goalChanges.push(change);
     await this.persist();
+  }
+
+  async listGoalSuggestions(userId: string, goalId: string) {
+    return this.snapshot.goalSuggestions
+      .filter((item) => item.userId === userId && item.goalId === goalId)
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  }
+
+  async saveGoalSuggestions(rows: GoalSuggestionRecord[]) {
+    this.snapshot.goalSuggestions.push(...rows);
+    await this.persist();
+  }
+
+  async closeOpenGoalSuggestions(goalId: string, userId: string) {
+    this.snapshot.goalSuggestions = this.snapshot.goalSuggestions.map((item) =>
+      item.goalId === goalId && item.userId === userId && item.status === "open"
+        ? { ...item, status: "dismissed" }
+        : item,
+    );
+    await this.persist();
+  }
+
+  async setGoalSuggestionStatus(
+    id: string,
+    userId: string,
+    status: GoalSuggestionRecord["status"],
+  ) {
+    const index = this.snapshot.goalSuggestions.findIndex(
+      (item) => item.id === id && item.userId === userId,
+    );
+    if (index === -1) {
+      return null;
+    }
+    const next = { ...this.snapshot.goalSuggestions[index]!, status };
+    this.snapshot.goalSuggestions[index] = next;
+    await this.persist();
+    return next;
+  }
+
+  async listChallengeParticipations(userId: string) {
+    return this.snapshot.challengeParticipations
+      .filter((item) => item.userId === userId)
+      .sort((a, b) => b.weekStart.localeCompare(a.weekStart));
+  }
+
+  async createChallengeParticipation(row: ChallengeParticipationRecord) {
+    this.snapshot.challengeParticipations.push(row);
+    await this.persist();
+    return row;
+  }
+
+  async updateChallengeParticipation(row: ChallengeParticipationRecord) {
+    this.snapshot.challengeParticipations = this.snapshot.challengeParticipations.map(
+      (item) => (item.id === row.id ? row : item),
+    );
+    await this.persist();
+    return row;
   }
 
   async listGoals(userId: string) {
@@ -511,5 +584,22 @@ export class JsonStore implements DataStore {
     ];
     await this.persist();
     return summary;
+  }
+
+  async saveLessonQuizzes(quizzes: LessonQuizRecord[]) {
+    this.snapshot.lessonQuizzes = quizzes;
+    await this.persist();
+  }
+
+  async listLessonQuizAttempts(userId: string, lessonId: string) {
+    return this.snapshot.lessonQuizAttempts
+      .filter((item) => item.userId === userId && item.lessonId === lessonId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  async createLessonQuizAttempt(row: LessonQuizAttemptRecord) {
+    this.snapshot.lessonQuizAttempts.push(row);
+    await this.persist();
+    return row;
   }
 }

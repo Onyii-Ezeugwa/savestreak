@@ -28,11 +28,13 @@ import type {
   UserBadgeRecord,
   WeeklySummaryRecord,
 } from "./habit-types";
+import type { ChallengeParticipationRecord, LessonQuizAttemptRecord, LessonQuizRecord } from "./habit-types";
 import type {
   ConsentRecord,
   ConsentResendRecord,
   GoalChangeRecord,
   GoalRecord,
+  GoalSuggestionRecord,
   PasswordResetRecord,
   UserRecord,
 } from "./types";
@@ -887,6 +889,7 @@ export class SupabaseStore implements DataStore {
       newTargetAmountCents: row.new_target_amount_cents,
       oldTargetDate: String(row.old_target_date).slice(0, 10),
       newTargetDate: String(row.new_target_date).slice(0, 10),
+      note: row.note == null ? null : String(row.note),
       changedAt: row.changed_at,
     }));
   }
@@ -900,10 +903,236 @@ export class SupabaseStore implements DataStore {
       new_target_amount_cents: change.newTargetAmountCents,
       old_target_date: change.oldTargetDate,
       new_target_date: change.newTargetDate,
+      note: change.note,
       changed_at: change.changedAt,
     });
     fail(error, "Could not record the goal change.");
   }
+
+  async listGoalSuggestions(userId: string, goalId: string) {
+    const { data, error } = await this.client
+      .from("goal_suggestions")
+      .select("*")
+      .eq("user_id", userId)
+      .eq("goal_id", goalId)
+      .order("created_at", { ascending: true });
+    fail(error, "Could not load catch-up suggestions.");
+    return (data ?? []).map(mapGoalSuggestion);
+  }
+
+  async saveGoalSuggestions(rows: GoalSuggestionRecord[]) {
+    if (rows.length === 0) {
+      return;
+    }
+    const { error } = await this.client.from("goal_suggestions").insert(
+      rows.map((row) => ({
+        id: row.id,
+        user_id: row.userId,
+        goal_id: row.goalId,
+        kind: row.kind,
+        title: row.title,
+        detail: row.detail,
+        effect: row.effect,
+        weekly_cents: row.weeklyCents,
+        target_amount_cents: row.targetAmountCents,
+        target_date: row.targetDate,
+        status: row.status,
+        basis: row.basis,
+        created_at: row.createdAt,
+      })),
+    );
+    fail(error, "Could not save catch-up suggestions.");
+  }
+
+  async closeOpenGoalSuggestions(goalId: string, userId: string) {
+    const { error } = await this.client
+      .from("goal_suggestions")
+      .update({ status: "dismissed" })
+      .eq("goal_id", goalId)
+      .eq("user_id", userId)
+      .eq("status", "open");
+    fail(error, "Could not update catch-up suggestions.");
+  }
+
+  async setGoalSuggestionStatus(
+    id: string,
+    userId: string,
+    status: GoalSuggestionRecord["status"],
+  ) {
+    const { data, error } = await this.client
+      .from("goal_suggestions")
+      .update({ status })
+      .eq("id", id)
+      .eq("user_id", userId)
+      .select("*")
+      .maybeSingle();
+    fail(error, "Could not update that suggestion.");
+    return data ? mapGoalSuggestion(data) : null;
+  }
+
+  async listChallengeParticipations(userId: string) {
+    const { data, error } = await this.client
+      .from("challenge_participations")
+      .select("*")
+      .eq("user_id", userId)
+      .order("week_start", { ascending: false });
+    fail(error, "Could not load challenges.");
+    return (data ?? []).map(mapChallengeParticipation);
+  }
+
+  async createChallengeParticipation(row: ChallengeParticipationRecord) {
+    const { error } = await this.client.from("challenge_participations").insert({
+      id: row.id,
+      user_id: row.userId,
+      week_start: row.weekStart,
+      challenge_id: row.challengeId,
+      joined_at: row.joinedAt,
+      status: row.status,
+      progress_cents: row.progressCents,
+      measured: row.measured,
+      closed_at: row.closedAt,
+    });
+    fail(error, "Could not join that challenge.");
+    return row;
+  }
+
+  async updateChallengeParticipation(row: ChallengeParticipationRecord) {
+    const { error } = await this.client
+      .from("challenge_participations")
+      .update({
+        status: row.status,
+        progress_cents: row.progressCents,
+        measured: row.measured,
+        closed_at: row.closedAt,
+      })
+      .eq("id", row.id)
+      .eq("user_id", row.userId);
+    fail(error, "Could not update that challenge.");
+    return row;
+  }
+
+  async saveLessonQuizzes(quizzes: LessonQuizRecord[]) {
+    const quizRows = quizzes.map((quiz) => ({
+      id: quiz.id,
+      lesson_id: quiz.lessonId,
+      topics: quiz.topics,
+      pass_percent: quiz.passPercent,
+    }));
+    const savedQuizzes = await this.client.from("lesson_quizzes").upsert(quizRows);
+    fail(savedQuizzes.error, "Could not save lesson quizzes.");
+    const questions = quizzes.flatMap((quiz) =>
+      quiz.questions.map((question, index) => ({
+        id: question.id,
+        quiz_id: quiz.id,
+        position: index + 1,
+        prompt: question.prompt,
+        choices: question.choices,
+        correct_index: question.correctIndex,
+        explanation: question.explanation,
+      })),
+    );
+    const savedQuestions = await this.client.from("lesson_quiz_questions").upsert(questions);
+    fail(savedQuestions.error, "Could not save quiz questions.");
+  }
+
+  async listLessonQuizAttempts(userId: string, lessonId: string) {
+    const { data, error } = await this.client
+      .from("lesson_quiz_attempts")
+      .select("*")
+      .eq("user_id", userId)
+      .eq("lesson_id", lessonId)
+      .order("created_at", { ascending: false });
+    fail(error, "Could not load quiz attempts.");
+    return (data ?? []).map(mapLessonQuizAttempt);
+  }
+
+  async createLessonQuizAttempt(row: LessonQuizAttemptRecord) {
+    const { error } = await this.client.from("lesson_quiz_attempts").insert({
+      id: row.id,
+      user_id: row.userId,
+      lesson_id: row.lessonId,
+      quiz_id: row.quizId,
+      score: row.score,
+      total: row.total,
+      passed: row.passed,
+      answers: row.answers,
+      created_at: row.createdAt,
+    });
+    fail(error, "Could not save that quiz attempt.");
+    return row;
+  }
+}
+
+function mapGoalSuggestion(row: {
+  id: string;
+  user_id: string;
+  goal_id: string;
+  kind: string;
+  title: string;
+  detail: string;
+  effect: string;
+  weekly_cents: number;
+  target_amount_cents: number | null;
+  target_date: string | null;
+  status: string;
+  basis: string;
+  created_at: string;
+}): GoalSuggestionRecord {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    goalId: row.goal_id,
+    kind: row.kind as GoalSuggestionRecord["kind"],
+    title: row.title,
+    detail: row.detail,
+    effect: row.effect,
+    weeklyCents: row.weekly_cents,
+    targetAmountCents: row.target_amount_cents,
+    targetDate: row.target_date ? String(row.target_date).slice(0, 10) : null,
+    status: row.status as GoalSuggestionRecord["status"],
+    basis: row.basis,
+    createdAt: row.created_at,
+  };
+}
+
+function mapLessonQuizAttempt(
+  row: Database["public"]["Tables"]["lesson_quiz_attempts"]["Row"],
+): LessonQuizAttemptRecord {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    lessonId: row.lesson_id,
+    quizId: row.quiz_id,
+    score: row.score,
+    total: row.total,
+    passed: row.passed,
+    answers: Array.isArray(row.answers) ? row.answers.map(Number) : [],
+    createdAt: row.created_at,
+  };
+}
+
+function mapChallengeParticipation(row: {
+  id: string;
+  user_id: string;
+  week_start: string;
+  challenge_id: string;
+  joined_at: string;
+  status: string;
+  progress_cents: number;
+  measured: boolean;
+  closed_at: string | null;
+}): ChallengeParticipationRecord {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    weekStart: String(row.week_start).slice(0, 10),
+    challengeId: row.challenge_id,
+    joinedAt: row.joined_at,
+    status: row.status as ChallengeParticipationRecord["status"],
+    progressCents: row.progress_cents,
+    measured: row.measured,
+    closedAt: row.closed_at,
+  };
 }
 
 function mapPasswordReset(row: {

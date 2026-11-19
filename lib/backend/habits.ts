@@ -1,3 +1,4 @@
+import { categorizeMerchant } from "@/lib/receipt-text-parse";
 import type { ExpenseCategory } from "./expense-types";
 
 export const CATEGORY_LABELS: Record<ExpenseCategory, string> = {
@@ -233,8 +234,10 @@ export function parseStatementCsv(text: string): ParsedStatementRow[] {
     if (!merchant || amountCents == null) {
       continue;
     }
-    const categoryRaw = (cells[3] ?? "other").toLowerCase();
-    const category = isExpenseCategory(categoryRaw) ? categoryRaw : "other";
+    const categoryRaw = (cells[3] ?? "").trim().toLowerCase();
+    const category = isExpenseCategory(categoryRaw)
+      ? categoryRaw
+      : categorizeMerchant(merchant);
     rows.push({ purchaseDate, merchant, amountCents, category });
     if (rows.length >= 200) {
       break;

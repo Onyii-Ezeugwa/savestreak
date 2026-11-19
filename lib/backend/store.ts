@@ -3,6 +3,7 @@ import type {
   ConsentResendRecord,
   GoalChangeRecord,
   GoalRecord,
+  GoalSuggestionRecord,
   PasswordResetRecord,
   UserRecord,
 } from "./types";
@@ -13,6 +14,9 @@ import type {
 import type { ExpenseRecord } from "./expense-types";
 import type {
   BalanceSnapshotRecord,
+  ChallengeParticipationRecord,
+  LessonQuizAttemptRecord,
+  LessonQuizRecord,
   LessonReadRecord,
   LessonRecord,
   LessonSaveRecord,
@@ -47,6 +51,14 @@ export interface DataStore {
   createConsentResend(record: ConsentResendRecord): Promise<void>;
   listGoalChanges(userId: string): Promise<GoalChangeRecord[]>;
   createGoalChange(change: GoalChangeRecord): Promise<void>;
+  listGoalSuggestions(userId: string, goalId: string): Promise<GoalSuggestionRecord[]>;
+  saveGoalSuggestions(rows: GoalSuggestionRecord[]): Promise<void>;
+  closeOpenGoalSuggestions(goalId: string, userId: string): Promise<void>;
+  setGoalSuggestionStatus(
+    id: string,
+    userId: string,
+    status: GoalSuggestionRecord["status"],
+  ): Promise<GoalSuggestionRecord | null>;
   listGoals(userId: string): Promise<GoalRecord[]>;
   getGoal(id: string, userId: string): Promise<GoalRecord | null>;
   createGoal(goal: GoalRecord): Promise<GoalRecord>;
@@ -115,4 +127,19 @@ export interface DataStore {
   saveWeeklySummary(
     summary: WeeklySummaryRecord,
   ): Promise<WeeklySummaryRecord>;
+  listChallengeParticipations(userId: string): Promise<ChallengeParticipationRecord[]>;
+  createChallengeParticipation(
+    row: ChallengeParticipationRecord,
+  ): Promise<ChallengeParticipationRecord>;
+  updateChallengeParticipation(
+    row: ChallengeParticipationRecord,
+  ): Promise<ChallengeParticipationRecord>;
+  saveLessonQuizzes(quizzes: LessonQuizRecord[]): Promise<void>;
+  listLessonQuizAttempts(
+    userId: string,
+    lessonId: string,
+  ): Promise<LessonQuizAttemptRecord[]>;
+  createLessonQuizAttempt(
+    row: LessonQuizAttemptRecord,
+  ): Promise<LessonQuizAttemptRecord>;
 }

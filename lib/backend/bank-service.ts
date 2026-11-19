@@ -4,7 +4,7 @@ import { requireActiveAccount } from "./goals-service";
 import { accountPosition } from "./account-position";
 import { recordSavingsSnapshot } from "./streak-service";
 import type { DataStore } from "./store";
-import { buildSandboxAccounts, jitterBalanceCents } from "./sandbox-bank";
+import { buildSandboxAccounts, nextPostedBalanceCents } from "./sandbox-bank";
 import { resolveBankLogo } from "@/lib/bank-logos";
 import { searchInstitutions } from "./plaid/institutions";
 import {
@@ -307,8 +307,10 @@ export class BankService {
       throw new ApiError(404, "That bank connection was not found.");
     }
 
-    const now = new Date().toISOString();
+    const nowDate = new Date();
+    const now = nowDate.toISOString();
     const refreshed: PublicBankConnection[] = [];
+    let balancesChanged = false;
 
     try {
       for (const connection of connections) {
@@ -317,14 +319,22 @@ export class BankService {
         );
         const accounts =
           existingAccounts.length > 0
-            ? existingAccounts.map(
-                (account) =>
-                  ({
-                    ...account,
-                    balanceCents: jitterBalanceCents(account.balanceCents),
-                    lastUpdatedAt: now,
-                  }) satisfies BankAccountRecord,
-              )
+            ? existingAccounts.map((account) => {
+                const balanceCents = nextPostedBalanceCents({
+                  accountType: account.accountType,
+                  balanceCents: account.balanceCents,
+                  lastUpdatedAt: account.lastUpdatedAt,
+                  now: nowDate,
+                });
+                if (balanceCents !== account.balanceCents) {
+                  balancesChanged = true;
+                }
+                return {
+                  ...account,
+                  balanceCents,
+                  lastUpdatedAt: now,
+                } satisfies BankAccountRecord;
+              })
             : loadSandboxAccounts({
                 id: connection.bankId,
                 name: connection.bankName,
@@ -379,7 +389,7 @@ export class BankService {
     }
 
     const allAccounts = await this.store.listBankAccounts(user.id);
-    if (refreshed.length > 0) {
+    if (refreshed.length > 0 && balancesChanged) {
       const position = accountPosition(allAccounts);
       await recordSavingsSnapshot(this.store, user.id, {
         savingsCents: position.savingsCents,

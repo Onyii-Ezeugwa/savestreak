@@ -62,7 +62,27 @@ export interface GoalChangeRecord {
   newTargetAmountCents: number;
   oldTargetDate: string;
   newTargetDate: string;
+  note: string | null;
   changedAt: string;
+}
+
+export type GoalSuggestionKind = "weekly" | "date" | "amount";
+export type GoalSuggestionStatus = "open" | "accepted" | "dismissed";
+
+export interface GoalSuggestionRecord {
+  id: string;
+  userId: string;
+  goalId: string;
+  kind: GoalSuggestionKind;
+  title: string;
+  detail: string;
+  effect: string;
+  weeklyCents: number;
+  targetAmountCents: number | null;
+  targetDate: string | null;
+  status: GoalSuggestionStatus;
+  basis: string;
+  createdAt: string;
 }
 
 export interface GoalRecord {
@@ -110,6 +130,7 @@ export interface PublicGoal {
     newTargetAmount: number;
     oldTargetDate: string;
     newTargetDate: string;
+    note: string | null;
     changedAt: string;
   }>;
   createdAt: string;

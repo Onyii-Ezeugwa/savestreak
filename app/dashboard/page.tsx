@@ -1,9 +1,8 @@
 "use client";
 
 import { Button } from "@/components/Button";
+import { GoalForm } from "@/components/GoalForm";
 import { HabitsPanel } from "@/components/HabitsPanel";
-import { Field } from "@/components/Field";
-import { GoalDatePicker } from "@/components/GoalDatePicker";
 import { useAuth } from "@/components/AuthProvider";
 import {
   apiRequest,
@@ -11,22 +10,23 @@ import {
   type ApiErrorPayload,
 } from "@/lib/api";
 import { formatDisplayDate } from "@/lib/dates";
-import { requiredSavings } from "@/lib/goal-progress";
 import {
   ArrowLeftRight,
   BookOpen,
+  Flag,
   Landmark,
   Loader2,
   Lock,
   Plus,
   Receipt,
   ScrollText,
+  Trophy,
   Wallet,
   X,
   type LucideIcon,
 } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useId, useState, type FormEvent } from "react";
+import { useEffect, useId, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
 
@@ -36,6 +36,8 @@ const DASHBOARD_LINKS: Array<{ href: string; label: string; icon: LucideIcon }> 
   { href: "/transactions", label: "Transactions", icon: ArrowLeftRight },
   { href: "/expenses", label: "Receipts", icon: Receipt },
   { href: "/summaries", label: "Weekly summary", icon: ScrollText },
+  { href: "/challenges", label: "Challenges", icon: Flag },
+  { href: "/achievements", label: "Achievements", icon: Trophy },
   { href: "/lessons", label: "Lesson", icon: BookOpen },
 ];
 
@@ -83,13 +85,7 @@ export default function DashboardPage() {
   } | null>(null);
   const [bankMessage, setBankMessage] = useState<string | null>(null);
   const [refreshingBanks, setRefreshingBanks] = useState(false);
-  const [draftPlans, setDraftPlans] = useState<
-    Record<string, Record<string, unknown>>
-  >({});
-  const [planningGoalId, setPlanningGoalId] = useState<string | null>(null);
-  const [savingPlanGoalId, setSavingPlanGoalId] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [editingId, setEditingId] = useState<string | null>(null);
   const [creatingGoal, setCreatingGoal] = useState(false);
   const goalDialogTitle = useId();
   const [habitTick, setHabitTick] = useState(0);
@@ -288,7 +284,7 @@ export default function DashboardPage() {
       </div>
       <nav
         aria-label="Dashboard"
-        className="mt-6 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6"
+        className="mt-6 grid grid-cols-2 gap-2 sm:grid-cols-4"
       >
         {DASHBOARD_LINKS.map((item) =>
           user.status === "active" ? (
@@ -484,479 +480,44 @@ export default function DashboardPage() {
               </p>
             ) : null}
             {goals.map((goal) => (
-              <article key={goal.id} className="game-panel rounded-3xl p-5">
-                {editingId === goal.id ? (
-                  <GoalForm
-                    initial={goal}
-                    bankAccounts={bankAccounts}
-                    submitLabel="Save changes"
-                    onCancel={() => setEditingId(null)}
-                    onSaved={async () => {
-                      setEditingId(null);
-                      await refreshGoals();
-                    }}
+              <Link
+                key={goal.id}
+                href={`/goals/${goal.id}`}
+                className="game-panel block rounded-3xl p-5 transition duration-200 hover:-translate-y-0.5 hover:border-teal/40"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="font-display text-2xl text-ink">{goal.name}</h3>
+                      <PaceBadge pace={goal.pace} />
+                    </div>
+                    <p className="mt-1 text-sm text-muted">
+                      {MONEY.format(goal.currentAmount)} saved of{" "}
+                      {MONEY.format(goal.targetAmount)} by{" "}
+                      {formatDisplayDate(goal.targetDate)}
+                    </p>
+                    <p className="mt-1 text-sm text-muted">
+                      {goal.completed
+                        ? "Target reached."
+                        : `${MONEY.format(goal.remainingAmount)} remaining`}
+                    </p>
+                  </div>
+                  <span className="text-sm font-semibold text-teal">
+                    {goal.progress}%
+                  </span>
+                </div>
+                <div className="mt-4 h-3 overflow-hidden rounded-sm border border-teal/20 bg-cream-dark">
+                  <div
+                    className={`h-full ${goal.completed ? "bg-green" : "bg-teal"}`}
+                    style={{ width: `${goal.progress}%` }}
                   />
-                ) : (
-                  <>
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <h3 className="font-display text-2xl text-ink">
-                            {goal.name}
-                          </h3>
-                          <PaceBadge pace={goal.pace} />
-                        </div>
-                        <p className="mt-1 text-sm text-muted">
-                          {MONEY.format(goal.currentAmount)} saved of{" "}
-                          {MONEY.format(goal.targetAmount)} by{" "}
-                          {formatDisplayDate(goal.targetDate)}
-                        </p>
-                        <p className="mt-1 text-sm text-muted">
-                          {goal.completed
-                            ? "Target reached."
-                            : `${MONEY.format(goal.remainingAmount)} remaining`}
-                          {goal.linkedAccountId
-                            ? " · Progress uses linked account balance"
-                            : null}
-                        </p>
-                      </div>
-                      <span className="text-sm font-semibold text-teal">
-                        {goal.progress}%
-                      </span>
-                    </div>
-                    {goal.planStale && goal.savedPlan ? (
-                      <p className="mt-3 text-sm text-orange">
-                        This savings plan is out of date because the target
-                        changed. Regenerate it when you are ready.
-                      </p>
-                    ) : null}
-                    {goal.changes?.length ? (
-                      <ul className="mt-3 space-y-1 text-xs text-muted">
-                        {goal.changes.slice(0, 3).map((change) => (
-                          <li key={change.changedAt}>
-                            {formatDisplayDate(change.changedAt.slice(0, 10))}: target{" "}
-                            {MONEY.format(change.oldTargetAmount)} by{" "}
-                            {formatDisplayDate(change.oldTargetDate)} became{" "}
-                            {MONEY.format(change.newTargetAmount)} by{" "}
-                            {formatDisplayDate(change.newTargetDate)}
-                          </li>
-                        ))}
-                      </ul>
-                    ) : null}
-                    <div className="mt-4 h-3 overflow-hidden rounded-sm border border-teal/20 bg-cream-dark">
-                      <div
-                        className={`h-full transition-[width] duration-500 ${
-                          goal.completed ? "bg-green" : "bg-teal"
-                        }`}
-                        style={{ width: `${goal.progress}%` }}
-                      />
-                    </div>
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        onClick={() => setEditingId(goal.id)}
-                      >
-                        Edit
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        disabled={
-                          planningGoalId !== null || savingPlanGoalId !== null
-                        }
-                        aria-busy={planningGoalId === goal.id}
-                        onClick={async () => {
-                          setPlanningGoalId(goal.id);
-                          setLoadError(null);
-                          try {
-                            const payload = await apiRequest<{
-                              plan: Record<string, unknown>;
-                            }>(`/goals/${goal.id}/plan`, {
-                              method: "POST",
-                              body: JSON.stringify({}),
-                            });
-                            setDraftPlans((current) => ({
-                              ...current,
-                              [goal.id]: payload.plan,
-                            }));
-                          } catch (caught) {
-                            setLoadError((caught as ApiErrorPayload).error);
-                          } finally {
-                            setPlanningGoalId(null);
-                          }
-                        }}
-                      >
-                        {planningGoalId === goal.id ? (
-                          <span className="inline-flex items-center gap-2">
-                            <Loader2
-                              size={14}
-                              className="animate-spin"
-                              aria-hidden="true"
-                            />
-                            Generating plan...
-                          </span>
-                        ) : goal.savedPlan ? (
-                          "Regenerate AI plan"
-                        ) : (
-                          "Get AI plan"
-                        )}
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="secondary"
-                        onClick={async () => {
-                          await apiRequest(`/goals/${goal.id}`, {
-                            method: "DELETE",
-                          });
-                          await refreshGoals();
-                        }}
-                      >
-                        Delete
-                      </Button>
-                    </div>
-                    {planningGoalId === goal.id ? (
-                      <div
-                        className="mt-4 rounded-2xl border border-teal/25 bg-teal/5 px-4 py-4"
-                        role="status"
-                        aria-live="polite"
-                        aria-busy="true"
-                      >
-                        <p className="inline-flex items-center gap-2 text-sm font-semibold text-teal">
-                          <Loader2
-                            size={16}
-                            className="animate-spin"
-                            aria-hidden="true"
-                          />
-                          Building your AI plan
-                        </p>
-                        <p className="mt-2 text-sm leading-6 text-muted">
-                          Looking at {goal.name}, your timeline, and any linked
-                          balances. This usually takes a few seconds.
-                        </p>
-                      </div>
-                    ) : (draftPlans[goal.id] || goal.savedPlan) ? (
-                      <div className="mt-4 rounded-2xl border border-line bg-cream px-4 py-3 text-sm">
-                        <p className="font-semibold text-ink">
-                          {draftPlans[goal.id] ? "New AI plan" : "Saved AI plan"}
-                        </p>
-                        <p className="mt-2 leading-6 text-muted">
-                          {String(
-                            (draftPlans[goal.id] ?? goal.savedPlan)?.summary ??
-                              "",
-                          )}
-                        </p>
-                        <p className="mt-2 text-ink">
-                          Save about{" "}
-                          {MONEY.format(
-                            Number(
-                              (draftPlans[goal.id] ?? goal.savedPlan)
-                                ?.cadenceAmount ?? 0,
-                            ),
-                          )}{" "}
-                          per{" "}
-                          {String(
-                            (draftPlans[goal.id] ?? goal.savedPlan)
-                              ?.cadenceFrequency ?? "week",
-                          )}
-                          .
-                        </p>
-                        <ul className="mt-3 list-disc space-y-1 pl-5 text-muted">
-                          {(
-                            ((draftPlans[goal.id] ?? goal.savedPlan)
-                              ?.suggestions as string[] | undefined) ?? []
-                          )
-                            .slice(0, 4)
-                            .map((tip) => (
-                              <li key={tip}>{tip}</li>
-                            ))}
-                        </ul>
-                        {!(
-                          (draftPlans[goal.id] ?? goal.savedPlan)
-                            ?.usedFinancialData
-                        ) ? (
-                          <p className="mt-3 text-xs text-muted">
-                            Built from the goal details only. Connect a bank for
-                            a more personalized plan.
-                          </p>
-                        ) : null}
-                        {draftPlans[goal.id] ? (
-                          <Button
-                            type="button"
-                            size="sm"
-                            className="mt-3"
-                            disabled={
-                              savingPlanGoalId === goal.id ||
-                              planningGoalId !== null
-                            }
-                            aria-busy={savingPlanGoalId === goal.id}
-                            onClick={async () => {
-                              setSavingPlanGoalId(goal.id);
-                              try {
-                                await apiRequest(`/goals/${goal.id}/plan`, {
-                                  method: "POST",
-                                  body: JSON.stringify({
-                                    action: "save",
-                                    plan: draftPlans[goal.id],
-                                  }),
-                                });
-                                setDraftPlans((current) => {
-                                  const next = { ...current };
-                                  delete next[goal.id];
-                                  return next;
-                                });
-                                await refreshGoals();
-                              } finally {
-                                setSavingPlanGoalId(null);
-                              }
-                            }}
-                          >
-                            {savingPlanGoalId === goal.id ? (
-                              <span className="inline-flex items-center gap-2">
-                                <Loader2
-                                  size={14}
-                                  className="animate-spin"
-                                  aria-hidden="true"
-                                />
-                                Saving...
-                              </span>
-                            ) : (
-                              "Save plan to goal"
-                            )}
-                          </Button>
-                        ) : goal.savedPlanAt ? (
-                          <p className="mt-3 text-xs text-muted">
-                            Saved {new Date(goal.savedPlanAt).toLocaleString()}
-                          </p>
-                        ) : null}
-                      </div>
-                    ) : null}
-                  </>
-                )}
-              </article>
+                </div>
+                <p className="mt-3 text-sm font-semibold text-teal">Open quest</p>
+              </Link>
             ))}
         </div>
         </div>
       ) : null}
     </section>
-  );
-}
-
-function SavingsPreview({
-  targetAmount,
-  currentAmount,
-  targetDate,
-}: {
-  targetAmount: string;
-  currentAmount: string;
-  targetDate: string;
-}) {
-  const target = Number(targetAmount);
-  const saved = Number(currentAmount || 0);
-  if (!Number.isFinite(target) || target <= 0 || !targetDate) {
-    return null;
-  }
-  const pace = requiredSavings({
-    currentAmountCents: Math.round(Math.max(0, saved) * 100),
-    targetAmountCents: Math.round(target * 100),
-    targetDate,
-  });
-  if (!pace) {
-    return null;
-  }
-  const money = new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-  });
-  return (
-    <p className="rounded-2xl border border-line bg-cream px-4 py-3 text-sm leading-6 text-ink">
-      About {money.format(pace.weeklyCents / 100)} a week, or{" "}
-      {money.format(pace.monthlyCents / 100)} a month, to reach the new target.
-    </p>
-  );
-}
-
-function GoalForm({
-  initial,
-  bankAccounts = [],
-  submitLabel,
-  onSaved,
-  onCancel,
-}: {
-  initial?: AccountGoal;
-  bankAccounts?: Array<{
-    id: string;
-    name: string;
-    accountType: string;
-    balance: number;
-  }>;
-  submitLabel: string;
-  onSaved: () => Promise<void>;
-  onCancel?: () => void;
-}) {
-  const linkableAccounts = bankAccounts.filter(
-    (account) =>
-      account.accountType === "savings" || account.accountType === "checking",
-  );
-  const [name, setName] = useState(initial?.name ?? "");
-  const [targetAmount, setTargetAmount] = useState(
-    initial ? String(initial.targetAmount) : "",
-  );
-  const [currentAmount, setCurrentAmount] = useState(
-    initial ? String(initial.currentAmount) : "0",
-  );
-  const [targetDate, setTargetDate] = useState(initial?.targetDate ?? "");
-  const [linkedAccountId, setLinkedAccountId] = useState(
-    initial?.linkedAccountId ?? "",
-  );
-  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
-  const [error, setError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-
-  async function onSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setSubmitting(true);
-    setError(null);
-    setFieldErrors({});
-    try {
-      const body = {
-        name,
-        targetAmount: Number(targetAmount),
-        currentAmount: Number(currentAmount || 0),
-        targetDate,
-        ...(initial
-          ? { linkedAccountId: linkedAccountId || null }
-          : {}),
-      };
-      if (initial) {
-        await apiRequest(`/goals/${initial.id}`, {
-          method: "PATCH",
-          body: JSON.stringify(body),
-        });
-      } else {
-        await apiRequest("/goals", {
-          method: "POST",
-          body: JSON.stringify(body),
-        });
-        setName("");
-        setTargetAmount("");
-        setCurrentAmount("0");
-        setTargetDate("");
-        setLinkedAccountId("");
-      }
-      await onSaved();
-    } catch (caught) {
-      const payload = caught as ApiErrorPayload;
-      setError(payload.error);
-      setFieldErrors(payload.fieldErrors ?? {});
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  return (
-    <form onSubmit={onSubmit} className="space-y-4">
-      <Field
-        label="Goal name"
-        value={name}
-        error={fieldErrors.name}
-        onChange={(event) => setName(event.target.value)}
-      />
-      <Field
-        label="Target amount"
-        type="number"
-        min="1"
-        step="1"
-        value={targetAmount}
-        error={fieldErrors.targetAmount}
-        onChange={(event) => setTargetAmount(event.target.value)}
-      />
-      <Field
-        label="Saved so far"
-        type="number"
-        min="0"
-        step="1"
-        value={currentAmount}
-        error={fieldErrors.currentAmount}
-        onChange={(event) => setCurrentAmount(event.target.value)}
-        hint={
-          linkedAccountId
-            ? "Linked account balance overrides this when you save."
-            : undefined
-        }
-      />
-      {initial && linkableAccounts.length > 0 ? (
-        <div>
-          <label
-            htmlFor={`linked-account-${initial.id}`}
-            className="text-sm font-medium text-ink"
-          >
-            Linked savings account
-          </label>
-          <select
-            id={`linked-account-${initial.id}`}
-            className="mt-2 w-full rounded-2xl border border-line bg-cream px-4 py-3 text-sm text-ink"
-            value={linkedAccountId}
-            onChange={(event) => setLinkedAccountId(event.target.value)}
-          >
-            <option value="">None (manual progress)</option>
-            {linkableAccounts.map((account) => (
-              <option key={account.id} value={account.id}>
-                {account.name} ({MONEY.format(account.balance)})
-              </option>
-            ))}
-          </select>
-          {fieldErrors.linkedAccountId ? (
-            <p className="mt-2 text-sm text-orange">
-              {fieldErrors.linkedAccountId}
-            </p>
-          ) : (
-            <p className="mt-2 text-xs text-muted">
-              When linked, progress uses that account balance.
-            </p>
-          )}
-        </div>
-      ) : null}
-      <div>
-        <p className="text-sm font-medium text-ink">Target date</p>
-        <div className="mt-2">
-          <GoalDatePicker
-            id={initial ? `edit-date-${initial.id}` : "new-goal-date"}
-            value={targetDate}
-            onChange={setTargetDate}
-            error={fieldErrors.targetDate}
-          />
-        </div>
-        {fieldErrors.targetDate ? (
-          <p className="mt-2 text-sm text-orange">{fieldErrors.targetDate}</p>
-        ) : null}
-      </div>
-      <SavingsPreview
-        targetAmount={targetAmount}
-        currentAmount={
-          linkedAccountId
-            ? String(
-                linkableAccounts.find((account) => account.id === linkedAccountId)
-                  ?.balance ?? currentAmount,
-              )
-            : currentAmount
-        }
-        targetDate={targetDate}
-      />
-      {error ? <p className="text-sm text-orange">{error}</p> : null}
-      <div className="flex gap-2">
-        <Button type="submit" disabled={submitting}>
-          {submitting ? "Saving..." : submitLabel}
-        </Button>
-        {onCancel ? (
-          <Button type="button" variant="secondary" onClick={onCancel}>
-            Cancel
-          </Button>
-        ) : null}
-      </div>
-    </form>
   );
 }

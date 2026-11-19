@@ -85,3 +85,24 @@ export function badgeById(id: string) {
 export function streakBadgeById(id: string) {
   return STREAK_BADGES.find((badge) => badge.id === id) ?? null;
 }
+
+export function howToEarn(id: string) {
+  if (id === "first-goal") {
+    return "Create a savings goal.";
+  }
+  if (id === "halfway") {
+    return "Reach halfway on a savings goal.";
+  }
+  if (id === "goal-complete") {
+    return "Finish a savings goal.";
+  }
+  if (id === "first-lesson") {
+    return "Read a financial lesson.";
+  }
+  const medal = streakBadgeById(id);
+  if (medal) {
+    const weeks = medal.weeks === 1 ? "1 week" : `${medal.weeks} weeks`;
+    return `Raise your savings for ${weeks} in a row.`;
+  }
+  return "Keep saving and learning.";
+}

@@ -94,11 +94,23 @@ export default function TransactionsPage() {
         body: form,
         credentials: "include",
       });
-      const body = (await response.json()) as { imported?: number; error?: string };
+      const body = (await response.json()) as {
+        imported?: number;
+        skipped?: number;
+        error?: string;
+      };
       if (!response.ok) {
         throw new Error(body.error || "Could not read that statement.");
       }
-      setStatementMessage(`Saved ${body.imported ?? 0} transactions.`);
+      const imported = body.imported ?? 0;
+      const skipped = body.skipped ?? 0;
+      setStatementMessage(
+        imported === 0 && skipped > 0
+          ? "Those transactions were already imported. Nothing new was added."
+          : skipped > 0
+            ? `Saved ${imported} transactions. ${skipped} were already on the account.`
+            : `Saved ${imported} transactions.`,
+      );
       event.currentTarget.reset();
       await loadTransactions();
     } catch (caught) {
@@ -348,9 +360,14 @@ export default function TransactionsPage() {
             {uploading ? "Reading statement..." : "Save statement"}
           </Button>
           {uploading ? (
-            <p className="text-sm text-muted" role="status">
-              Reading the statement. A PDF can take a moment.
-            </p>
+            <div role="status">
+              <p className="text-sm text-muted">
+                Reading the statement. A PDF can take a moment.
+              </p>
+              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-cream-dark">
+                <div className="h-full w-1/2 animate-pulse rounded-full bg-teal" />
+              </div>
+            </div>
           ) : null}
           {statementMessage ? (
             <p className="text-sm text-teal">{statementMessage}</p>

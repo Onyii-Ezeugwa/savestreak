@@ -31,6 +31,7 @@ export interface AccountGoal {
     newTargetAmount: number;
     oldTargetDate: string;
     newTargetDate: string;
+    note: string | null;
     changedAt: string;
   }>;
   createdAt: string;

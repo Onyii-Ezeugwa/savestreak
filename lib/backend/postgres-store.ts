@@ -28,12 +28,14 @@ import type {
   UserBadgeRecord,
   WeeklySummaryRecord,
 } from "./habit-types";
+import type { ChallengeParticipationRecord, LessonQuizAttemptRecord, LessonQuizRecord } from "./habit-types";
 import {
   ApiError,
   type ConsentRecord,
   type ConsentResendRecord,
   type GoalChangeRecord,
   type GoalRecord,
+  type GoalSuggestionRecord,
   type PasswordResetRecord,
   type UserRecord,
 } from "./types";
@@ -808,8 +810,8 @@ export class PostgresStore implements DataStore {
     await this.pool.query(
       `INSERT INTO goal_changes
         (id, goal_id, user_id, old_target_amount_cents, new_target_amount_cents,
-         old_target_date, new_target_date, changed_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+         old_target_date, new_target_date, note, changed_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
       [
         change.id,
         change.goalId,
@@ -818,9 +820,184 @@ export class PostgresStore implements DataStore {
         change.newTargetAmountCents,
         change.oldTargetDate,
         change.newTargetDate,
+        change.note,
         change.changedAt,
       ],
     );
+  }
+
+  async listGoalSuggestions(userId: string, goalId: string) {
+    const result = await this.pool.query(
+      `SELECT * FROM goal_suggestions
+       WHERE user_id = $1 AND goal_id = $2
+       ORDER BY created_at ASC`,
+      [userId, goalId],
+    );
+    return result.rows.map(mapGoalSuggestion);
+  }
+
+  async saveGoalSuggestions(rows: GoalSuggestionRecord[]) {
+    for (const row of rows) {
+      await this.pool.query(
+        `INSERT INTO goal_suggestions
+          (id, user_id, goal_id, kind, title, detail, effect, weekly_cents,
+           target_amount_cents, target_date, status, basis, created_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+        [
+          row.id,
+          row.userId,
+          row.goalId,
+          row.kind,
+          row.title,
+          row.detail,
+          row.effect,
+          row.weeklyCents,
+          row.targetAmountCents,
+          row.targetDate,
+          row.status,
+          row.basis,
+          row.createdAt,
+        ],
+      );
+    }
+  }
+
+  async closeOpenGoalSuggestions(goalId: string, userId: string) {
+    await this.pool.query(
+      `UPDATE goal_suggestions SET status = 'dismissed'
+       WHERE goal_id = $1 AND user_id = $2 AND status = 'open'`,
+      [goalId, userId],
+    );
+  }
+
+  async setGoalSuggestionStatus(
+    id: string,
+    userId: string,
+    status: GoalSuggestionRecord["status"],
+  ) {
+    const result = await this.pool.query(
+      `UPDATE goal_suggestions SET status = $3
+       WHERE id = $1 AND user_id = $2
+       RETURNING *`,
+      [id, userId, status],
+    );
+    const row = result.rows[0];
+    return row ? mapGoalSuggestion(row) : null;
+  }
+
+  async listChallengeParticipations(userId: string) {
+    const result = await this.pool.query(
+      `SELECT * FROM challenge_participations WHERE user_id = $1 ORDER BY week_start DESC`,
+      [userId],
+    );
+    return result.rows.map(mapChallengeParticipation);
+  }
+
+  async createChallengeParticipation(row: ChallengeParticipationRecord) {
+    await this.pool.query(
+      `INSERT INTO challenge_participations
+        (id, user_id, week_start, challenge_id, joined_at, status, progress_cents, measured, closed_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+      [
+        row.id,
+        row.userId,
+        row.weekStart,
+        row.challengeId,
+        row.joinedAt,
+        row.status,
+        row.progressCents,
+        row.measured,
+        row.closedAt,
+      ],
+    );
+    return row;
+  }
+
+  async updateChallengeParticipation(row: ChallengeParticipationRecord) {
+    await this.pool.query(
+      `UPDATE challenge_participations
+       SET status = $2, progress_cents = $3, measured = $4, closed_at = $5
+       WHERE id = $1 AND user_id = $6`,
+      [row.id, row.status, row.progressCents, row.measured, row.closedAt, row.userId],
+    );
+    return row;
+  }
+
+  async saveLessonQuizzes(quizzes: LessonQuizRecord[]) {
+    const client = await this.pool.connect();
+    try {
+      await client.query("begin");
+      for (const quiz of quizzes) {
+        await client.query(
+          `INSERT INTO lesson_quizzes (id, lesson_id, topics, pass_percent)
+           VALUES ($1, $2, $3, $4)
+           ON CONFLICT (id) DO UPDATE
+           SET lesson_id = EXCLUDED.lesson_id,
+               topics = EXCLUDED.topics,
+               pass_percent = EXCLUDED.pass_percent`,
+          [quiz.id, quiz.lessonId, quiz.topics, quiz.passPercent],
+        );
+        for (const [index, question] of quiz.questions.entries()) {
+          await client.query(
+            `INSERT INTO lesson_quiz_questions
+              (id, quiz_id, position, prompt, choices, correct_index, explanation)
+             VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7)
+             ON CONFLICT (id) DO UPDATE
+             SET quiz_id = EXCLUDED.quiz_id,
+                 position = EXCLUDED.position,
+                 prompt = EXCLUDED.prompt,
+                 choices = EXCLUDED.choices,
+                 correct_index = EXCLUDED.correct_index,
+                 explanation = EXCLUDED.explanation`,
+            [
+              question.id,
+              quiz.id,
+              index + 1,
+              question.prompt,
+              JSON.stringify(question.choices),
+              question.correctIndex,
+              question.explanation,
+            ],
+          );
+        }
+      }
+      await client.query("commit");
+    } catch (error) {
+      await client.query("rollback");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async listLessonQuizAttempts(userId: string, lessonId: string) {
+    const result = await this.pool.query(
+      `SELECT * FROM lesson_quiz_attempts
+       WHERE user_id = $1 AND lesson_id = $2
+       ORDER BY created_at DESC`,
+      [userId, lessonId],
+    );
+    return result.rows.map(mapLessonQuizAttempt);
+  }
+
+  async createLessonQuizAttempt(row: LessonQuizAttemptRecord) {
+    await this.pool.query(
+      `INSERT INTO lesson_quiz_attempts
+        (id, user_id, lesson_id, quiz_id, score, total, passed, answers, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9)`,
+      [
+        row.id,
+        row.userId,
+        row.lessonId,
+        row.quizId,
+        row.score,
+        row.total,
+        row.passed,
+        JSON.stringify(row.answers),
+        row.createdAt,
+      ],
+    );
+    return row;
   }
 }
 
@@ -844,7 +1021,61 @@ function mapGoalChange(row: Record<string, unknown>): GoalChangeRecord {
     newTargetAmountCents: Number(row.new_target_amount_cents),
     oldTargetDate: asDate(row.old_target_date as Date | string),
     newTargetDate: asDate(row.new_target_date as Date | string),
+    note: row.note == null ? null : String(row.note),
     changedAt: asIso(row.changed_at as Date | string) ?? new Date().toISOString(),
+  };
+}
+
+function mapGoalSuggestion(row: Record<string, unknown>): GoalSuggestionRecord {
+  return {
+    id: String(row.id),
+    userId: String(row.user_id),
+    goalId: String(row.goal_id),
+    kind: row.kind as GoalSuggestionRecord["kind"],
+    title: String(row.title),
+    detail: String(row.detail),
+    effect: String(row.effect),
+    weeklyCents: Number(row.weekly_cents),
+    targetAmountCents:
+      row.target_amount_cents == null ? null : Number(row.target_amount_cents),
+    targetDate: row.target_date == null ? null : asDate(row.target_date as Date | string),
+    status: row.status as GoalSuggestionRecord["status"],
+    basis: String(row.basis),
+    createdAt: asIso(row.created_at as Date | string) ?? new Date().toISOString(),
+  };
+}
+
+function mapLessonQuizAttempt(row: Record<string, unknown>): LessonQuizAttemptRecord {
+  const answers = row.answers;
+  const parsed = Array.isArray(answers)
+    ? answers.map(Number)
+    : typeof answers === "string"
+      ? (JSON.parse(answers) as unknown[])
+      : [];
+  return {
+    id: String(row.id),
+    userId: String(row.user_id),
+    lessonId: String(row.lesson_id),
+    quizId: String(row.quiz_id),
+    score: Number(row.score),
+    total: Number(row.total),
+    passed: Boolean(row.passed),
+    answers: parsed.map(Number),
+    createdAt: asIso(row.created_at as Date | string) ?? new Date().toISOString(),
+  };
+}
+
+function mapChallengeParticipation(row: Record<string, unknown>): ChallengeParticipationRecord {
+  return {
+    id: String(row.id),
+    userId: String(row.user_id),
+    weekStart: asDate(row.week_start as Date | string),
+    challengeId: String(row.challenge_id),
+    joinedAt: asIso(row.joined_at as Date | string) ?? new Date().toISOString(),
+    status: row.status as ChallengeParticipationRecord["status"],
+    progressCents: Number(row.progress_cents),
+    measured: Boolean(row.measured),
+    closedAt: asIso((row.closed_at as Date | string | null) ?? null),
   };
 }
 

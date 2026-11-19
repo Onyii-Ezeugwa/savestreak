@@ -5,11 +5,12 @@ import {
   monthBounds,
   parseStatementCsv,
   weekBounds,
+  type ParsedStatementRow,
 } from "./habits";
 import { parseStatementDocument } from "./statement-parse";
 import { readStatementPdf } from "./statement-pdf";
 import type { ExpenseCategory } from "./expense-types";
-import type { PublicTransaction } from "./habit-types";
+import type { PublicTransaction, StatementTransactionRecord } from "./habit-types";
 import type { DataStore } from "./store";
 import { ApiError, type UserRecord } from "./types";
 
@@ -108,18 +109,71 @@ function isPdfFile(file: { name: string; type: string; bytes: Buffer }) {
   );
 }
 
+function isCsvFile(file: { name: string; type: string }) {
+  const name = file.name.toLowerCase();
+  return (
+    file.type === "text/csv" ||
+    file.type === "application/csv" ||
+    file.type === "text/plain" ||
+    file.type === "application/vnd.ms-excel" ||
+    name.endsWith(".csv") ||
+    name.endsWith(".txt")
+  );
+}
+
+function statementKey(row: {
+  merchant: string;
+  purchaseDate: string;
+  amountCents: number;
+}) {
+  return `${row.purchaseDate}|${row.merchant.trim().toLowerCase()}|${row.amountCents}`;
+}
+
+function skipImportedRows(
+  rows: ParsedStatementRow[],
+  existing: StatementTransactionRecord[],
+) {
+  const available = new Map<string, number>();
+  for (const row of existing) {
+    const key = statementKey(row);
+    available.set(key, (available.get(key) ?? 0) + 1);
+  }
+  const fresh: ParsedStatementRow[] = [];
+  let skipped = 0;
+  for (const row of rows) {
+    const key = statementKey(row);
+    const left = available.get(key) ?? 0;
+    if (left > 0) {
+      available.set(key, left - 1);
+      skipped += 1;
+      continue;
+    }
+    fresh.push(row);
+  }
+  return { fresh, skipped };
+}
+
 export async function importStatement(
   store: DataStore,
   user: UserRecord,
   file: { name: string; type: string; bytes: Buffer },
 ) {
   requireActiveAccount(user);
+  if (file.bytes.length === 0) {
+    throw new ApiError(400, "That file is empty. Nothing was imported.");
+  }
   const pdf = isPdfFile(file);
+  if (!pdf && !isCsvFile(file)) {
+    throw new ApiError(
+      400,
+      "Upload a PDF or CSV bank statement. That file type is not supported, so nothing was imported.",
+    );
+  }
   if (!pdf && file.bytes.length > 1_000_000) {
-    throw new ApiError(400, "Keep the statement file under 1 MB.");
+    throw new ApiError(400, "Keep the statement file under 1 MB. Nothing was imported.");
   }
   if (pdf && file.bytes.length > 8_000_000) {
-    throw new ApiError(400, "Keep the PDF under 8 MB.");
+    throw new ApiError(400, "Keep the PDF under 8 MB. Nothing was imported.");
   }
 
   const parsed = pdf
@@ -129,12 +183,17 @@ export async function importStatement(
     throw new ApiError(
       422,
       pdf
-        ? "No purchases were found in that PDF. Deposits and payments are skipped. You can also upload a CSV with date, merchant, and amount."
-        : "No transactions were found. Use a CSV with date, merchant, and amount.",
+        ? "No purchases were found in that PDF. Deposits and payments are skipped, and nothing was imported. You can also upload a CSV with date, merchant, and amount."
+        : "No transactions were found, so nothing was imported. Use a CSV with date, merchant, and amount.",
     );
   }
+  const existing = await store.listStatementTransactions(user.id);
+  const { fresh, skipped } = skipImportedRows(parsed, existing);
+  if (fresh.length === 0) {
+    return { imported: 0, skipped };
+  }
   const createdAt = new Date().toISOString();
-  const records = parsed.map((row) => ({
+  const records = fresh.map((row) => ({
     id: randomUUID(),
     userId: user.id,
     merchant: row.merchant,
@@ -144,5 +203,5 @@ export async function importStatement(
     createdAt,
   }));
   await store.createStatementTransactions(records);
-  return { imported: records.length };
+  return { imported: records.length, skipped };
 }

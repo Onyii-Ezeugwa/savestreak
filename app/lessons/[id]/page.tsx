@@ -2,6 +2,7 @@
 
 import { useAuth } from "@/components/AuthProvider";
 import { LessonArticle } from "@/components/LessonArticle";
+import { LessonQuiz } from "@/components/LessonQuiz";
 import { SaveLessonButton } from "@/components/SaveLessonButton";
 import { BackLink } from "@/components/BackLink";
 import { PageFooterNav } from "@/components/PageFooterNav";
@@ -91,6 +92,7 @@ export default function LessonPage() {
               <SaveLessonButton lessonId={lesson.id} saved={saved} onChange={setSaved} />
             }
           />
+          <LessonQuiz lessonId={lesson.id} />
         </div>
       ) : null}
       <PageFooterNav />

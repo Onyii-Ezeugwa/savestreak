@@ -5,9 +5,11 @@ import {
   ArrowLeftRight,
   ArrowRight,
   BookOpen,
+  Flag,
   Landmark,
   Receipt,
   ScrollText,
+  Trophy,
   Wallet,
   type LucideIcon,
 } from "lucide-react";
@@ -20,6 +22,8 @@ const PAGES: Array<{ href: string; label: string; icon: LucideIcon }> = [
   { href: "/transactions", label: "Transactions", icon: ArrowLeftRight },
   { href: "/expenses", label: "Receipts", icon: Receipt },
   { href: "/summaries", label: "Weekly summary", icon: ScrollText },
+  { href: "/challenges", label: "Challenges", icon: Flag },
+  { href: "/achievements", label: "Achievements", icon: Trophy },
   { href: "/lessons", label: "Lesson", icon: BookOpen },
 ];
 
